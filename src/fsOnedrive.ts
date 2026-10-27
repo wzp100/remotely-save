@@ -1,3 +1,4 @@
+// Local fork: retain auth error, folder creation, and token-expiry fixes.
 import { CryptoProvider, PublicClientApplication } from "@azure/msal-node";
 import type { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
 import type {
@@ -23,6 +24,21 @@ import { bufferToArrayBuffer } from "./misc";
 
 const SCOPES = ["User.Read", "Files.ReadWrite.AppFolder", "offline_access"];
 const REDIRECT_URI = `obsidian://${COMMAND_CALLBACK_ONEDRIVE}`;
+
+const fetchOrThrow = async (
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  action: string
+) => {
+  const response = await fetch(input, init);
+  if (response.ok) return response;
+  const detail = await response.text().catch(() => "");
+  const error = new Error(
+    `${action}失败：HTTP ${response.status}${detail ? `：${detail.slice(0, 500)}` : ""}`
+  ) as Error & { status?: number };
+  error.status = response.status;
+  throw error;
+};
 
 export const DEFAULT_ONEDRIVE_CONFIG: OnedriveConfig = {
   accessToken: "",
@@ -148,7 +164,8 @@ export const sendAuthReq = async (
     }
   } catch (e) {
     console.error(e);
-    await errorCallBack(e);
+    await errorCallBack?.(e);
+    throw e;
   }
 };
 
@@ -194,9 +211,9 @@ export const setConfigBySuccessfullAuthInplace = async (
   console.info("start updating local info of OneDrive token");
   config.accessToken = authRes.access_token;
   config.accessTokenExpiresAtTime =
-    Date.now() + authRes.expires_in - 5 * 60 * 1000;
+    Date.now() + authRes.expires_in * 1000 - 2 * 60 * 1000;
   config.accessTokenExpiresInSeconds = authRes.expires_in;
-  config.refreshToken = authRes.refresh_token!;
+  config.refreshToken = authRes.refresh_token || config.refreshToken;
 
   // manually set it expired after 80 days;
   config.credentialsShouldBeDeletedAtTime =
@@ -469,6 +486,7 @@ ${constructFromDriveItemToEntityError(x)}`
     ctimeCli: ctimeCli,
     size: isFolder ? 0 : x.size!,
     sizeRaw: isFolder ? 0 : x.size!,
+    etag: x.eTag ?? undefined,
     synthesizedFile: false,
     // hash: ?? // TODO
   };
@@ -516,7 +534,7 @@ class MyAuthProvider implements AuthenticationProvider {
       }
       const r2 = r as AccessCodeResponseSuccessfulType;
       this.onedriveConfig.accessToken = r2.access_token;
-      this.onedriveConfig.refreshToken = r2.refresh_token!;
+      this.onedriveConfig.refreshToken = r2.refresh_token || this.onedriveConfig.refreshToken;
       this.onedriveConfig.accessTokenExpiresInSeconds = r2.expires_in;
       this.onedriveConfig.accessTokenExpiresAtTime =
         currentTs + r2.expires_in * 1000 - 60 * 2 * 1000;
@@ -539,6 +557,13 @@ export const getShrinkedSettings = (onedriveConfig: OnedriveConfig) => {
   config.accessTokenExpiresAtTime = 1;
   return config;
 };
+
+// Microsoft Graph delta can repeat IDs; the last occurrence is authoritative.
+export function latestDriveItems(items: DriveItem[]): DriveItem[] {
+  const latest=new Map<string,DriveItem>();
+  for(const item of items){if(!item.id)throw new Error("OneDrive 返回的条目缺少 ID。");latest.set(item.id,item);}
+  return [...latest.values()].filter(item=>!item.deleted);
+}
 
 export class FakeFsOnedrive extends FakeFs {
   kind: "onedrive";
@@ -585,11 +610,7 @@ export class FakeFsOnedrive extends FakeFs {
           .length > 0;
       if (!this.vaultFolderExists) {
         console.info(`remote does not have folder /${this.remoteBaseDir}`);
-        await this._postJson("/drive/special/approot/children", {
-          name: `${this.remoteBaseDir}`,
-          folder: {},
-          "@microsoft.graph.conflictBehavior": "replace",
-        });
+        await this._createApprootFolder(this.remoteBaseDir);
         console.info(`remote folder /${this.remoteBaseDir} created`);
         this.vaultFolderExists = true;
       } else {
@@ -598,6 +619,13 @@ export class FakeFsOnedrive extends FakeFs {
     }
   }
 
+  async _createApprootFolder(name: string) {
+    const headers={Authorization: `Bearer ${await this.authGetter.getAccessToken()}`};
+    try { await request({url:this._buildUrl(`/drive/special/approot:/${name}`),method:"PUT",contentType:"application/json",body:JSON.stringify({folder:{}}),headers});return; } catch {}
+    try { await request({url:this._buildUrl("/drive/special/approot/children"),method:"POST",contentType:"application/json",body:JSON.stringify({name,folder:{},"@microsoft.graph.conflictBehavior":"fail"}),headers});return; } catch {}
+    const folders=await this._getJson("/drive/special/approot/children");
+    if(!folders.value.some((item:DriveItem)=>item.name===name))throw new Error("无法创建 OneDrive 同步目录。");
+  }
   _buildUrl(pathFragOrig: string) {
     const API_PREFIX = "https://graph.microsoft.com/v1.0";
     let theUrl = "";
@@ -678,12 +706,16 @@ export class FakeFsOnedrive extends FakeFs {
         },
       });
     } else {
-      await fetch(theUrl, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${await this.authGetter.getAccessToken()}`,
+      await fetchOrThrow(
+        theUrl,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${await this.authGetter.getAccessToken()}`,
+          },
         },
-      });
+        "删除 OneDrive 文件"
+      );
     }
   }
 
@@ -707,14 +739,18 @@ export class FakeFsOnedrive extends FakeFs {
       });
       return res.json as DriveItem | UploadSession;
     } else {
-      const res = await fetch(theUrl, {
-        method: "PUT",
-        body: payload,
-        headers: {
-          "Content-Type": DEFAULT_CONTENT_TYPE,
-          Authorization: `Bearer ${await this.authGetter.getAccessToken()}`,
+      const res = await fetchOrThrow(
+        theUrl,
+        {
+          method: "PUT",
+          body: payload,
+          headers: {
+            "Content-Type": DEFAULT_CONTENT_TYPE,
+            Authorization: `Bearer ${await this.authGetter.getAccessToken()}`,
+          },
         },
-      });
+        "上传 OneDrive 文件"
+      );
       return (await res.json()) as DriveItem | UploadSession;
     }
   }
@@ -759,16 +795,20 @@ export class FakeFsOnedrive extends FakeFs {
       });
       return res.json as DriveItem | UploadSession;
     } else {
-      const res = await fetch(theUrl, {
-        method: "PUT",
-        body: payload.subarray(rangeStart, rangeEnd),
-        headers: {
-          "Content-Length": `${rangeEnd - rangeStart}`,
-          "Content-Range": `bytes ${rangeStart}-${rangeEnd - 1}/${size}`,
-          "Content-Type": DEFAULT_CONTENT_TYPE,
-          /* "Cache-Control": "no-cache", not allowed here!!! */
+      const res = await fetchOrThrow(
+        theUrl,
+        {
+          method: "PUT",
+          body: payload.subarray(rangeStart, rangeEnd),
+          headers: {
+            "Content-Length": `${rangeEnd - rangeStart}`,
+            "Content-Range": `bytes ${rangeStart}-${rangeEnd - 1}/${size}`,
+            "Content-Type": DEFAULT_CONTENT_TYPE,
+            /* "Cache-Control": "no-cache", not allowed here!!! */
+          },
         },
-      });
+        "上传 OneDrive 文件分片"
+      );
       return (await res.json()) as DriveItem | UploadSession;
     }
   }
@@ -801,7 +841,7 @@ export class FakeFsOnedrive extends FakeFs {
     }
 
     // unify everything to Entity
-    const unifiedContents = driveItems
+    const unifiedContents = latestDriveItems(driveItems)
       .map((x) => fromDriveItemToEntity(x, this.remoteBaseDir))
       .filter((x) => x.key !== "/");
 
@@ -826,7 +866,7 @@ export class FakeFsOnedrive extends FakeFs {
     }
 
     // unify everything to Entity
-    const unifiedContents = driveItems
+    const unifiedContents = latestDriveItems(driveItems)
       .map((x) => fromDriveItemToEntity(x, this.remoteBaseDir))
       .filter((x) => x.key !== "/");
 
@@ -1053,7 +1093,11 @@ export class FakeFsOnedrive extends FakeFs {
       try {
         // cannot set no-cache here, will have cors error
         const content = await (
-          await fetch(downloadUrl, { cache: "no-store" })
+          await fetchOrThrow(
+            downloadUrl,
+            { cache: "no-store" },
+            "下载 OneDrive 文件"
+          )
         ).arrayBuffer();
         return content;
       } catch (e) {

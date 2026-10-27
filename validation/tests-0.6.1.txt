@@ -1,0 +1,160 @@
+
+> remotely-save@0.6.1 test
+> mocha --import=tsx --require ./tests/obsidianShim.cjs "tests/**/*.ts"
+
+
+
+  Basic sync planning without subscription dependencies
+    ✔ plans both initial upload and initial download
+    ✔ keeps equal files and imports existing history
+    ✔ propagates an isolated local edit
+    ✔ propagates an isolated remote edit
+    ✔ propagates tracked deletions, rather than resurrecting files
+    ✔ preserves an edit made on the surviving side of a deletion
+    ✔ resolves concurrent edits by newer time or larger size
+    ✔ respects upload-only and download-only modes
+    ✔ only propagates deletes when the directional option permits them
+    ✔ applies ignores, allowlists, hidden files, and own-config exclusions
+    ✔ rejects invalid regex and remote path traversal before mutations
+    ✔ skips oversized files and never recursively deletes a directory
+    ✔ enforces modification protection before execution
+    ✔ removes retired account data without changing OneDrive authorization or settings
+
+  Basic sync execution and failure recovery
+    ✔ uploads bytes and writes two-sided history only after success
+    ✔ downloads into nested folders
+    ✔ does not advance history on a failed upload
+    ✔ detects source edits during read before overwriting remote
+    ✔ detects newly created targets after planning
+    ✔ does not delete a file if its counterpart reappears
+    ✔ performs dry runs without file writes, history changes or a success timestamp
+
+  Bounded transfer concurrency
+    ✔ honors the saved concurrency and waits for every in-flight operation
+
+  Encryption adapter compatibility
+    ✔ registers a new unencrypted key before preflight and uploads through the real adapter
+
+  First-party local filesystem errors
+    ✔ recognizes missing-file errors without hiding authentication or network failures
+
+  Config Persist tests
+    ✔ should encrypt go back and forth conrrectly
+
+  Encryption OpenSSL tests
+    ✔ should encrypt string
+    ✔ should encrypt string and return different results each time
+    ✔ should raise error using different password
+    ✔ should encrypt and decrypt string and get the same result returned
+    ✔ should encrypt text file and get the same result as openssl
+    ✔ should encrypt binary file and get the same result as openssl
+    ✔ should encrypt binary file not deterministically (52ms)
+    ✔ should decrypt binary file and get the same result as openssl
+    ✔ should get size from origin to encrypted correctly
+    ✔ should get size from encrypted to origin correctly
+
+  Webdis operations tests
+    ✔ should get orig keys correctly
+
+  Metadata operations tests
+    ✔ should compare objects deeply
+    ✔ should find diff
+    ✔ should treat undefined correctly
+    ✔ should ignore generated at fields
+
+  Misc: hidden file
+    ✔ should find hidden file correctly
+
+  Misc: get folder levels
+    ✔ should ignore empty path
+    ✔ should ignore single file
+    ✔ should detect path ending with /
+    ✔ should correctly split folders and files
+    ✔ should correctly add ending slash if required
+    ✔ should treat path starting with / correctly
+
+  Misc: get parent folder
+    ✔ should treat empty path correctly
+    ✔ should treat one level path correctly
+    ✔ should treat more levels path correctly
+
+  Misc: vaild file name tests
+    ✔ should treat no ascii correctly
+    ✔ should find not-printable chars correctly
+    ✔ should allow spaces/slashes/...
+
+  Misc: get dirname
+    ✔ should return itself for folder
+    ✔ should return folder for file
+    ✔ should treat / specially
+
+  Misc: extract svg
+    ✔ should extract rect from svg correctly
+
+  Misc: get split ranges
+    ✔ should deal with big parts
+    ✔ should deal with 0 remainder
+    ✔ should deal with not-0 remainder
+
+  Misc: at which level
+    ✔ should throw error on some parameters
+    ✔ should treat folders correctly
+    ✔ should treat files correctly
+
+  Misc: special char for dir
+    ✔ should return false for normal string
+    ✔ should return true for special cases
+
+  Misc: split chunk ranges
+    ✔ should fail on negative numner
+    ✔ should return nothing for 0 input
+    ✔ should return single item for 1 input
+    ✔ should return single item for larger or equal input
+    ✔ should return correct items for normal input
+
+  Misc: check valid file names
+    ✔ should be ok for normal file nmes
+    ✔ should be not ok for reserved characters
+    ✔ should be not ok for reserved names
+    ✔ should be not ok for invalid endings
+
+  Misc: Dropbox: should fix the folder name cases
+    ✔ should do nothing on empty folders
+    ✔ should sort folders by length by side effect
+    ✔ should fix folder names
+
+  OneDrive local authorization fixes
+start updating local info of OneDrive token
+finish updating local info of Onedrive token
+    ✔ converts expiry seconds to milliseconds and retains the refresh token if not rotated
+Error: test network failure
+    at global.__obsidianRequest (<repo>/tests/onedriveLocal.test.ts:6:140)
+    at request (<repo>/tests/obsidianShim.cjs:3:313)
+    at sendAuthReq (<repo>/src/fsOnedrive.ts:142:24)
+    at <anonymous> (<repo>/tests/onedriveLocal.test.ts:6:218)
+    at waitForActual (node:assert:632:21)
+    at strict.rejects (node:assert:769:31)
+    at Context.<anonymous> (<repo>/tests/onedriveLocal.test.ts:6:206)
+    at callFn (<repo>/node_modules/mocha/lib/runnable.js:364:21)
+    at Runnable.run (<repo>/node_modules/mocha/lib/runnable.js:352:5)
+    at Runner.runTest (<repo>/node_modules/mocha/lib/runner.js:677:10)
+    at <repo>/node_modules/mocha/lib/runner.js:800:12
+    at next (<repo>/node_modules/mocha/lib/runner.js:592:14)
+    at <repo>/node_modules/mocha/lib/runner.js:602:7
+    at next (<repo>/node_modules/mocha/lib/runner.js:485:14)
+    at Immediate.<anonymous> (<repo>/node_modules/mocha/lib/runner.js:570:5)
+    at process.processImmediate (node:internal/timers:574:21)
+    ✔ rejects a token request failure instead of leaving an undefined response
+    ✔ falls back from app-folder PUT to POST without replacing an existing directory
+
+  OneDrive delta compatibility
+    ✔ uses the last occurrence by ID and removes deletion tombstones
+
+  OneDrive HTTP failure handling
+putArrayBuffer, theUrl=https://graph.microsoft.com/v1.0/file
+    ✔ rejects a non-success direct upload instead of treating it as uploaded
+getJson, theUrl=https://graph.microsoft.com/v1.0/file?$select=@microsoft.graph.downloadUrl
+    ✔ falls back to requestUrl when a download URL returns an HTTP error
+
+
+  83 passing (182ms)

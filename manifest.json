@@ -1,11 +1,10 @@
 {
   "id": "remotely-save",
-  "name": "Remotely Save",
-  "version": "0.5.25",
-  "minAppVersion": "0.13.21",
-  "description": "Yet another unofficial plugin allowing users to synchronize notes between local device and the cloud service.",
-  "author": "fyears",
+  "name": "Remotely Save 本地版",
+  "version": "0.6.1",
+  "minAppVersion": "1.5.0",
+  "description": "集成同步控制台，直接连接 OneDrive，保留现有授权与同步配置。",
+  "author": "Remotely Save contributors / local fork",
   "authorUrl": "https://github.com/fyears",
-  "isDesktopOnly": false,
-  "fundingUrl": "https://remotelysave.com"
+  "isDesktopOnly": true
 }

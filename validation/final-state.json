@@ -1,0 +1,10 @@
+{
+  "remainingCloudTestFolders": [],
+  "localTestFolderPresent": false,
+  "onlyOneRemotelyPlugin": [
+    "remotely-save"
+  ],
+  "installedVersion": "0.6.1",
+  "mainJsSha256": "f48ea840a7fe5446d5bcd10529a8f4566565b9762f4203d4e643ae1284122238",
+  "settingsSections": 1
+}

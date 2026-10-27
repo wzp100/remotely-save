@@ -1,0 +1,18 @@
+{
+  "version": "0.6.0",
+  "unchangedBasicSettings": true,
+  "changedBasicFields": [],
+  "oneDriveClientPreserved": true,
+  "oneDriveAuthorityPreserved": true,
+  "oneDriveFolderPreserved": true,
+  "oneDriveAccountPreserved": true,
+  "refreshTokenPreserved": true,
+  "hasRefreshToken": true,
+  "vaultIDPreserved": true,
+  "profilePreserved": true,
+  "autoMs": 300000,
+  "initMs": 1000,
+  "saveMs": -1,
+  "proRemoved": true,
+  "standaloneInstalled": false
+}

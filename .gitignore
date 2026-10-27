@@ -4,12 +4,12 @@
 
 # npm
 node_modules
-package-lock.json
 pnpm-lock.yaml
 
 # build
 main.js
 *.js.map
+build-meta.json
 
 # obsidian
 data.json

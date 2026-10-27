@@ -416,6 +416,9 @@ export class FakeFsEncrypt extends FakeFs {
     }
 
     if (this.isPasswordEmpty()) {
+      // Register new local names too: preflight stat must reach the actual
+      // remote filesystem even before the first upload of this name.
+      this.cacheMapOrigToEnc[input.key] = input.key;
       return copyEntityAndCopyKeyEncSizeEnc(input);
     }
 

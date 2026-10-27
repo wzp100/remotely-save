@@ -1,244 +1,36 @@
-/* set the styles */
-
-.password-second-confirm {
-  font-weight: bold;
-}
-
-.password-disclaimer {
-  font-weight: bold;
-}
-
-.encryptionmethod-second-confirm {
-  font-weight: bold;
-}
-
-.settings-auth-related {
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: 18px;
-}
-
-.settings-percentage-custom-hide {
-  display: none;
-}
-
-.settings-encryption-method-hide {
-  display: none;
-}
-
-.s3-disclaimer {
-  font-weight: bold;
-}
-.s3-hide {
-  display: none;
-}
-
-.dropbox-disclaimer {
-  font-weight: bold;
-}
-.dropbox-hide {
-  display: none;
-}
-
-.dropbox-auth-button-hide {
-  display: none;
-}
-
-.dropbox-revoke-auth-button-hide {
-  display: none;
-}
-
-.onedrive-disclaimer {
-  font-weight: bold;
-}
-.onedrive-hide {
-  display: none;
-}
-
-.onedrive-auth-button-hide {
-  display: none;
-}
-
-.onedrive-revoke-auth-button-hide {
-  display: none;
-}
-
-.onedrivefull-allow-to-use-hide {
-  display: none;
-}
-
-.onedrivefull-disclaimer {
-  font-weight: bold;
-}
-.onedrivefull-hide {
-  display: none;
-}
-
-.onedrivefull-auth-button-hide {
-  display: none;
-}
-
-.onedrivefull-revoke-auth-button-hide {
-  display: none;
-}
-
-.webdav-disclaimer {
-  font-weight: bold;
-}
-.webdav-hide {
-  display: none;
-}
-
-.webdav-customheaders-textarea {
-  font-family: monospace;
-}
-
-.webdis-disclaimer {
-  font-weight: bold;
-}
-.webdis-hide {
-  display: none;
-}
-
-.googledrive-disclaimer {
-  font-weight: bold;
-}
-.googledrive-hide {
-  display: none;
-}
-
-.googledrive-allow-to-use-hide {
-  display: none;
-}
-
-.googledrive-auth-button-hide {
-  display: none;
-}
-
-.googledrive-revoke-auth-button-hide {
-  display: none;
-}
-
-.box-disclaimer {
-  font-weight: bold;
-}
-.box-hide {
-  display: none;
-}
-
-.box-allow-to-use-hide {
-  display: none;
-}
-
-.box-auth-button-hide {
-  display: none;
-}
-
-.box-revoke-auth-button-hide {
-  display: none;
-}
-
-.pcloud-disclaimer {
-  font-weight: bold;
-}
-.pcloud-hide {
-  display: none;
-}
-
-.pcloud-allow-to-use-hide {
-  display: none;
-}
-
-.pcloud-auth-button-hide {
-  display: none;
-}
-
-.pcloud-revoke-auth-button-hide {
-  display: none;
-}
-
-.yandexdisk-disclaimer {
-  font-weight: bold;
-}
-.yandexdisk-hide {
-  display: none;
-}
-
-.yandexdisk-allow-to-use-hide {
-  display: none;
-}
-
-.yandexdisk-auth-button-hide {
-  display: none;
-}
-
-.yandexdisk-revoke-auth-button-hide {
-  display: none;
-}
-
-.koofr-disclaimer {
-  font-weight: bold;
-}
-.koofr-hide {
-  display: none;
-}
-
-.koofr-allow-to-use-hide {
-  display: none;
-}
-
-.koofr-auth-button-hide {
-  display: none;
-}
-
-.koofr-revoke-auth-button-hide {
-  display: none;
-}
-
-.azureblobstorage-disclaimer {
-  font-weight: bold;
-}
-.azureblobstorage-hide {
-  display: none;
-}
-
-.azureblobstorage-allow-to-use-hide {
-  display: none;
-}
-
-.qrcode-img {
-  width: 350px;
-  height: 350px;
-}
-
-.ignorepaths-textarea {
-  font-family: monospace;
-}
-
-.onlyallowpaths-textarea {
-  font-family: monospace;
-}
-
-.logtohttpserver-warning {
-  color: red;
-  font-weight: bolder;
-}
-
-.setting-need-wrapping .setting-item-control {
-  /* flex-wrap: wrap; */
-  display: grid;
-}
-
-.pro-disclaimer {
-  font-weight: bold;
-}
-.pro-hide {
-  display: none;
-}
-
-.pro-auth-button-hide {
-  display: none;
-}
-
-.pro-revoke-auth-button-hide {
-  display: none;
-}
+/* Local fork: integrated console, inherits Obsidian's active theme. */
+.rs-console { max-width: 980px; padding-bottom: 32px; }
+.rs-console .rs-hero { padding: 24px; margin-bottom: 20px; border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-secondary); }
+.rs-console .rs-hero h1 { margin-top: 0; font-size: 26px; }
+.rs-console .rs-hero p { color: var(--text-muted); }
+.rs-console .rs-actions .setting-item { border: 0; padding-bottom: 0; }
+.rs-console .rs-actions .setting-item-info { display: none; }
+.rs-console .rs-actions .setting-item-control { flex-wrap: wrap; justify-content: flex-start; }
+.rs-console .rs-section { padding: 18px 20px; margin-bottom: 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); }
+.rs-console .rs-section h2 { margin-top: 0; font-size: 18px; }
+.rs-console .rs-key-value { display: flex; gap: 20px; justify-content: space-between; padding: 8px 0; }
+.rs-console .rs-label { color: var(--text-muted); }
+.rs-console .rs-value { word-break: break-word; text-align: right; }
+.rs-console .rs-error { color: var(--text-error); }
+.rs-console .rs-live-state { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.rs-console .rs-live-state.is-syncing { border-color: var(--interactive-accent); }
+.rs-console .rs-live-state.is-preview { border-color: var(--color-yellow); }
+.rs-console .rs-live-state.is-failed { border-color: var(--text-error); }
+.rs-console .rs-live-heading { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.rs-console .rs-live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); flex: 0 0 auto; }
+.rs-console .is-syncing .rs-live-dot { background: var(--interactive-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-accent) 18%, transparent); }
+.rs-console .is-preview .rs-live-dot { background: var(--color-yellow); }
+.rs-console .is-failed .rs-live-dot { background: var(--text-error); }
+.rs-console .rs-live-title { font-weight: 700; font-size: 15px; }
+.rs-console .rs-live-meta { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+.rs-console .rs-progress { height: 7px; margin: 14px 0 9px; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
+.rs-console .rs-progress-fill { height: 100%; border-radius: inherit; background: var(--interactive-accent); transition: width .25s ease; }
+.rs-console .rs-live-detail, .rs-console .rs-live-summary { margin-top: 10px; color: var(--text-muted); }
+.rs-console .rs-live-path { margin-top: 7px; padding: 8px 10px; border-radius: 7px; background: var(--background-primary); font-family: var(--font-monospace); font-size: 12px; word-break: break-all; }
+.rs-console .rs-live-times { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; color: var(--text-faint); font-size: 12px; }
+.rs-console .rs-live-actions { margin-top: 10px; }
+.rs-console pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rs-console textarea { min-height: 84px; }
+.rs-console summary { cursor: pointer; font-weight: 600; }
+.rs-console .onedrive-auth-button-hide,.rs-console .onedrive-revoke-auth-button-hide { display:none; }
+@media(max-width:700px) { .rs-console .rs-section,.rs-console .rs-hero { padding:16px; } .rs-console .setting-item { flex-wrap:wrap; gap:12px; } .rs-console .setting-item-control { margin-left:0; max-width:100%; } .rs-console .rs-live-meta { width:100%; margin-left:18px; } }

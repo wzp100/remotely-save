@@ -1,0 +1,8 @@
+
+> remotely-save@0.6.1 build
+> tsc -noEmit -skipLibCheck && node esbuild.config.mjs production
+
+
+  main.js  2.3mb ⚠️
+
+⚡ Done in 209ms

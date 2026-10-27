@@ -1,0 +1,5 @@
+Remotely Save local fork, based on upstream 0.5.25 (e39edcea).
+Copyright upstream Remotely Save contributors. Apache License 2.0.
+Local modifications: integrated console, standalone basic sync implementation,
+OneDrive authorization and delta-list compatibility fixes.
+No source or runtime dependency from the upstream pro/ tree is included.

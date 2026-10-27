@@ -1,0 +1,24 @@
+{
+  "obsidianVersion": "1.14.5",
+  "pluginVersion": "0.6.1",
+  "settingsRendered": true,
+  "liveDuringSync": {
+    "title": "正在同步",
+    "source": "启动同步",
+    "elapsedObserved": "16 秒",
+    "detail": "正在读取并比对本地与云端文件..."
+  },
+  "afterSync": {
+    "title": "空闲",
+    "summaryShown": true,
+    "upload": 1,
+    "download": 0,
+    "deleteLocal": 0,
+    "deleteRemote": 0,
+    "folders": 0,
+    "skipped": 425,
+    "conflicts": 0,
+    "durationMs": 23801
+  },
+  "newRemotelySaveErrorsAfterReload": false
+}

@@ -1,5 +1,7 @@
 /* Local fork: integrated console, inherits Obsidian's active theme. */
-.rs-console { max-width: 980px; padding-bottom: 32px; }
+/* Obsidian centers settings with container padding, so limit the cards instead. */
+.rs-console { padding-bottom: 32px; }
+.rs-console > .rs-hero, .rs-console > .rs-section { box-sizing: border-box; max-width: 980px; margin-inline: auto; }
 .rs-console .rs-hero { padding: 24px; margin-bottom: 20px; border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-secondary); }
 .rs-console .rs-hero h1 { margin-top: 0; font-size: 26px; }
 .rs-console .rs-hero p { color: var(--text-muted); }

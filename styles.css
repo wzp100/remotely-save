@@ -35,4 +35,5 @@
 .rs-console textarea { min-height: 84px; }
 .rs-console summary { cursor: pointer; font-weight: 600; }
 .rs-console .onedrive-auth-button-hide,.rs-console .onedrive-revoke-auth-button-hide { display:none; }
+.rs-gitignore-modal .rs-gitignore-editor { width: 100%; min-height: 240px; box-sizing: border-box; font-family: var(--font-monospace); resize: vertical; }
 @media(max-width:700px) { .rs-console .rs-section,.rs-console .rs-hero { padding:16px; } .rs-console .setting-item { flex-wrap:wrap; gap:12px; } .rs-console .setting-item-control { margin-left:0; max-width:100%; } .rs-console .rs-live-meta { width:100%; margin-left:18px; } }

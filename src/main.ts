@@ -4,6 +4,7 @@ import { stripPaidConfig } from "./settingsCompatibility";
 // biome-ignore lint/suspicious/noShadowRestrictedNames: <explanation>
 import cloneDeep from "lodash/cloneDeep";
 import throttle from "lodash/throttle";
+import { nanoid } from "nanoid";
 import { FileText, RefreshCcw, RotateCcw, createElement } from "lucide";
 import { Events, FileSystemAdapter, type Modal, Notice, Platform, Plugin, type Setting, TFolder, addIcon, requireApiVersion, setIcon, } from "obsidian";
 import type { RemotelySavePluginSettings, SyncTriggerSourceType, } from "./baseTypes";
@@ -27,6 +28,9 @@ import { changeMobileStatusBar } from "./misc";
 import { DEFAULT_PROFILER_CONFIG, Profiler } from "./profiler";
 import { RemotelySaveSettingTab } from "./settings";
 import { SyncAlgoV3Modal } from "./syncAlgoV3Notice";
+import { consumeOneDriveAuthSession } from "./onedriveAuthSession";
+import { getSyncProfileID } from "./onedriveFolder";
+import { BOOTSTRAP_ALLOW_PROGRAMS_RULE, BOOTSTRAP_CONFIG_WAS_OFF_RULE, BOOTSTRAP_ONLY_PROGRAMS_RULE, legacyPluginEnabled, loadLocalOrLegacySettings } from "./pluginMigration";
 const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
     s3: DEFAULT_S3_CONFIG,
     webdav: DEFAULT_WEBDAV_CONFIG,
@@ -43,6 +47,7 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
     agreeToUploadExtraMetadata: true, // as of 20240106, it's safe to assume every new user agrees with this
     concurrency: 5,
     syncConfigDir: false,
+    syncLocalPlugin: true,
     syncBookmarks: false,
     syncUnderscoreItems: false,
     lang: "auto",
@@ -50,6 +55,7 @@ const DEFAULT_SETTINGS: RemotelySavePluginSettings = {
     skipSizeLargerThan: -1,
     ignorePaths: [],
     onlyAllowPaths: [],
+    respectGitignore: true,
     enableStatusBarInfo: true,
     deleteToWhere: "system",
     agreeToUseSyncV3: false,
@@ -139,6 +145,10 @@ export default class RemotelySavePlugin extends Plugin {
     syncEvent?: Events;
     appContainerObserver?: MutationObserver;
     async syncRun(triggerSource: SyncTriggerSourceType = "manual") {
+        if (legacyPluginEnabled(this.app)) {
+            new Notice("请先停用旧版 Remotely Save，再使用本地版同步。", 15000);
+            return;
+        }
         if(this.isSyncing){new Notice("同步正在进行。");return;}
         this.syncStartedAt=Date.now();
         this.syncTriggerSource=triggerSource;
@@ -150,7 +160,7 @@ export default class RemotelySavePlugin extends Plugin {
         if (this.settings.profiler?.enable ?? false) {
             profiler = new Profiler(undefined, this.settings.profiler?.enablePrinting ?? false, this.settings.profiler?.recordSize ?? false);
         }
-        const fsLocal = new FakeFsLocal(this.app.vault, this.settings.syncConfigDir ?? false, this.settings.syncBookmarks ?? false, this.app.vault.configDir, this.manifest.id, profiler, this.settings.deleteToWhere ?? "system");
+        const fsLocal = new FakeFsLocal(this.app.vault, this.settings.syncConfigDir ?? false, this.settings.syncBookmarks ?? false, this.app.vault.configDir, this.manifest.id, profiler, this.settings.deleteToWhere ?? "system", this.settings.syncLocalPlugin !== false);
         const fsRemote = getClient(this.settings, this.app.vault.getName(), async () => await this.saveSettings());
         const fsEncrypt = new FakeFsEncrypt(fsRemote, this.settings.password ?? "", this.settings.encryptionMethod ?? "rclone-base64");
         const t = (x: TransItemType, vars?: any) => {
@@ -362,6 +372,10 @@ export default class RemotelySavePlugin extends Plugin {
     createRemoteClient() { return getClient(this.settings,this.app.vault.getName(),()=>this.saveSettings()); }
     async onload() {
         console.info(`loading plugin ${this.manifest.id}`);
+        if (legacyPluginEnabled(this.app)) {
+            new Notice("请先停用旧版 Remotely Save，再启用本地版，避免重复同步和授权冲突。", 15000);
+            throw new Error("旧版 Remotely Save 仍在运行，请先停用旧版。");
+        }
         const { iconSvgSyncWait, iconSvgSyncRunning, iconSvgLogs } = getIconSvg();
         addIcon(iconNameSyncWait, iconSvgSyncWait);
         addIcon(iconNameSyncRunning, iconSvgSyncRunning);
@@ -485,14 +499,17 @@ export default class RemotelySavePlugin extends Plugin {
   const modal=this.oauth2Info.helperModal;
   try {
     if(params.error)throw new Error(params.error_description || params.error);
-    if(!params.code || !this.oauth2Info.verifier)throw new Error("授权会话已失效，请重新开始。");
+    if(!params.code)throw new Error("授权会话已失效，请重新开始。");
+    const verifier=await consumeOneDriveAuthSession(this.db,this.vaultRandomID,params.state);
     modal?.contentEl.empty();modal?.contentEl.createEl("p",{text:"正在连接 OneDrive…"});
-    const rsp=await sendAuthReqOnedrive(this.settings.onedrive.clientID,this.settings.onedrive.authority,params.code,this.oauth2Info.verifier,(error:Error)=>{throw error;});
+    const rsp=await sendAuthReqOnedrive(this.settings.onedrive.clientID,this.settings.onedrive.authority,params.code,verifier,(error:Error)=>{throw error;});
     if(!rsp || "error" in rsp)throw new Error("OneDrive 拒绝了授权，请重试。");
     const staged=cloneDeep(this.settings);
     await setConfigBySuccessfullAuthInplaceOnedrive(staged.onedrive,rsp,async()=>{});
     staged.onedrive.username=await getClient(staged,this.app.vault.getName(),async()=>{}).getUserDisplayName();
-    this.settings.onedrive=staged.onedrive;await this.saveSettings();modal?.close();new Notice("OneDrive 授权成功。");
+    const previous=this.settings.onedrive;this.settings.onedrive=staged.onedrive;
+    try{await this.saveSettings();}catch(error){this.settings.onedrive=previous;throw error;}
+    modal?.close();new Notice("OneDrive 授权成功。");
   }catch(error){modal?.contentEl.empty();modal?.contentEl.createEl("p",{text:"连接失败："+(error as Error).message});new Notice("OneDrive 授权未完成，现有账号已保留。");}
   finally{this.oauth2Info.verifier="";}
 });
@@ -604,7 +621,17 @@ export default class RemotelySavePlugin extends Plugin {
         }
     }
     async loadSettings() {
-        this.settings = Object.assign({}, cloneDeep(DEFAULT_SETTINGS), messyConfigToNormal(await this.loadData()));
+        const source = await loadLocalOrLegacySettings(await this.loadData(), this.app.vault.adapter, this.app.vault.configDir);
+        this.settings = Object.assign({}, cloneDeep(DEFAULT_SETTINGS), messyConfigToNormal(source.data as any));
+        if (source.legacy && (this.settings.ignorePaths ?? []).includes(BOOTSTRAP_ONLY_PROGRAMS_RULE)) {
+            if (this.settings.ignorePaths?.includes(BOOTSTRAP_CONFIG_WAS_OFF_RULE)) this.settings.syncConfigDir = false;
+            this.settings.ignorePaths = this.settings.ignorePaths!.filter(rule => rule !== BOOTSTRAP_ONLY_PROGRAMS_RULE && rule !== BOOTSTRAP_CONFIG_WAS_OFF_RULE);
+            this.settings.onlyAllowPaths = (this.settings.onlyAllowPaths ?? []).filter(rule => rule !== BOOTSTRAP_ALLOW_PROGRAMS_RULE);
+        }
+        if (source.legacy && !source.localFork && this.settings.serviceType === "onedrive" && !this.settings.onedrive.syncProfileID) {
+            // Upstream's sync history has different semantics; never use it to infer deletions.
+            this.settings.onedrive.syncProfileID = nanoid();
+        }
         if (this.settings.syncBookmarks === undefined) {
             this.settings.syncBookmarks = false;
         }
@@ -742,12 +769,7 @@ export default class RemotelySavePlugin extends Plugin {
      * After 202403 the data should be of profile based.
      */
     getCurrProfileID() {
-        if (this.settings.serviceType !== undefined) {
-            return `${this.settings.serviceType}-default-1`;
-        }
-        else {
-            throw Error("unknown serviceType in the setting!");
-        }
+        return getSyncProfileID(this.settings);
     }
     async checkIfOauthExpires() {
     }
@@ -886,7 +908,7 @@ export default class RemotelySavePlugin extends Plugin {
                         .setIcon("file-cog")
                         .onClick(async () => {
                         const filePath = file.path;
-                        const fsLocal = new FakeFsLocal(this.app.vault, this.settings.syncConfigDir ?? false, this.settings.syncBookmarks ?? false, this.app.vault.configDir, this.manifest.id, undefined, this.settings.deleteToWhere ?? "system");
+                        const fsLocal = new FakeFsLocal(this.app.vault, this.settings.syncConfigDir ?? false, this.settings.syncBookmarks ?? false, this.app.vault.configDir, this.manifest.id, undefined, this.settings.deleteToWhere ?? "system", this.settings.syncLocalPlugin !== false);
                         const s = await fsLocal.stat(filePath);
                         new Notice(JSON.stringify(s, null, 2), 10000);
                     });

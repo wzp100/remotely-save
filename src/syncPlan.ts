@@ -1,5 +1,6 @@
 // Local fork: independently implemented basic sync planning (Apache-2.0).
 import type { Entity, RemotelySavePluginSettings } from "./baseTypes";
+import type { GitIgnoreFilter } from "./gitignore";
 export type Operation = "upload" | "download" | "delete_local" | "delete_remote" | "mkdir_local" | "mkdir_remote" | "equal" | "forget" | "skip";
 export interface BasicHistory extends Entity { basicLocal?: Entity; basicRemote?: Entity; }
 export interface Action { key: string; operation: Operation; local?: Entity; remote?: Entity; previous?: BasicHistory; conflict?: boolean; }
@@ -17,7 +18,7 @@ export function sameSides(local: Entity, remote: Entity): boolean {
     && Math.abs(modified(local) - modified(remote)) < 1000;
 }
 export const SELF_PLUGIN_FILES = ["main.js", "styles.css", "manifest.json"] as const;
-export const selfPluginPrefix = (configDir: string) => `${configDir}/plugins/remotely-save/`;
+export const selfPluginPrefix = (configDir: string) => `${configDir}/plugins/remotely-save-local/`;
 export const isSelfPluginFile = (key: string, configDir: string) =>
   SELF_PLUGIN_FILES.some(name => key === selfPluginPrefix(configDir) + name);
 export function includePath(key: string, settings: RemotelySavePluginSettings, configDir: string): boolean {
@@ -29,14 +30,19 @@ export function includePath(key: string, settings: RemotelySavePluginSettings, c
     if(key===`${configDir}/workspace.json`||key.startsWith(`${configDir}/workspace/`))return false;
     const selfPrefix = selfPluginPrefix(configDir);
     if (key.toLowerCase().startsWith(selfPrefix.toLowerCase()) && key !== selfPrefix && !isSelfPluginFile(key, configDir)) return false;
+    if (settings.syncLocalPlugin === false && (key === selfPrefix || isSelfPluginFile(key, configDir))) return false;
+    // The previous plugin can retain device-specific authorization after migration.
+    if (key.toLowerCase().startsWith(`${configDir}/plugins/remotely-save/`.toLowerCase())) return false;
     if (key.toLowerCase().startsWith(`${configDir}/plugins/remotely-save-console/`.toLowerCase())) return false;
-    if (!settings.syncConfigDir && !(settings.syncBookmarks && key === `${configDir}/bookmarks.json`)) return false;
+    const localPluginPath = settings.syncLocalPlugin !== false &&
+      (key === `${configDir}/` || key === `${configDir}/plugins/` || key === selfPrefix || isSelfPluginFile(key, configDir));
+    if (!settings.syncConfigDir && !localPluginPath && !(settings.syncBookmarks && key === `${configDir}/bookmarks.json`)) return false;
   } else if (parts.some(p => p.startsWith(".") || (!settings.syncUnderscoreItems && p.startsWith("_")))) return false;
   if ((settings.ignorePaths ?? []).some(pattern => new RegExp(pattern).test(key))) return false;
   if ((settings.onlyAllowPaths ?? []).length && !(settings.onlyAllowPaths ?? []).some(pattern => new RegExp(pattern).test(key))) return false;
   return true;
 }
-export function planSync(localFiles: Entity[], remoteFiles: Entity[], history: BasicHistory[], settings: RemotelySavePluginSettings, configDir = ".obsidian"): Action[] {
+export function planSync(localFiles: Entity[], remoteFiles: Entity[], history: BasicHistory[], settings: RemotelySavePluginSettings, configDir = ".obsidian", gitignore?: GitIgnoreFilter): Action[] {
   // Validate user regexes before a plan can cause any writes.
   for (const pattern of [...settings.ignorePaths ?? [], ...settings.onlyAllowPaths ?? []]) new RegExp(pattern);
   const index = <T extends Entity>(files: T[]) => {
@@ -44,6 +50,7 @@ export function planSync(localFiles: Entity[], remoteFiles: Entity[], history: B
     for (const f of files) {
       const key = f.key ?? f.keyRaw;
       if (!includePath(key, settings, configDir)) continue;
+      if (gitignore?.ignores(key)) continue;
       if (map.has(key)) throw new Error(`重复的同步路径：${key}`);
       map.set(key, f);
     }

@@ -8,6 +8,9 @@ import type {
 } from "./baseTypes";
 import { getClient } from "./fsGetter";
 import { getAuthUrlAndVerifier } from "./fsOnedrive";
+import { saveOneDriveAuthSession } from "./onedriveAuthSession";
+import { saveRootGitIgnore } from "./gitignore";
+import { changeOneDriveFolder } from "./onedriveFolder";
 import {
   getLastFailedSyncTimeByVault,
   getLastSuccessSyncTimeByVault,
@@ -162,6 +165,15 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       connection.createEl("p", {
         text: "直接连接 Microsoft OneDrive 应用目录，使用已保存的微软账号授权。",
       });
+      let remoteFolder = s.onedrive.remoteBaseDir ?? "";
+      new Setting(connection)
+        .setName("OneDrive 远程目录")
+        .setDesc("各设备请填写相同的文件夹名称；留空时使用笔记库名称。更换目录会使用独立同步历史。")
+        .addText(t => t.setPlaceholder(this.app.vault.getName()).setValue(remoteFolder).onChange(v => { remoteFolder = v; }))
+        .addButton(b => b.setButtonText("保存").onClick(() => this.action(b, async () => {
+          const updated = changeOneDriveFolder(this.plugin.settings.onedrive, remoteFolder);
+          if (updated !== this.plugin.settings.onedrive) await this.save({ onedrive: updated });
+        })));
       new Setting(connection)
         .setName("OneDrive 授权")
         .setDesc("现有授权继续使用；更换账号或授权失效时才需要重新登录。")
@@ -240,9 +252,13 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
           )
         );
       });
+    this.toggle(rules, "同步本地版程序文件", s.syncLocalPlugin !== false, (v) =>
+      this.save({ syncLocalPlugin: v }),
+      "只同步本地版的 main.js、manifest.json、styles.css；各设备的授权和 data.json 不会同步。"
+    );
     this.toggle(rules, "同步 Obsidian 配置", !!s.syncConfigDir, (v) =>
       this.save({ syncConfigDir: v }),
-      "包含本插件的程序文件；本插件的 data.json 和授权始终保留在各设备上。"
+      "同步其他 Obsidian 设置及插件配置；本地版和旧版 Remotely Save 的授权始终保留在本设备。"
     );
     this.toggle(rules, "同步书签", !!s.syncBookmarks, (v) =>
       this.save({ syncBookmarks: v })
@@ -250,6 +266,14 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     this.toggle(rules, "同步下划线开头的项目", !!s.syncUnderscoreItems, (v) =>
       this.save({ syncUnderscoreItems: v })
     );
+    this.toggle(rules, "遵循 .gitignore", s.respectGitignore !== false, (v) =>
+      this.save({ respectGitignore: v }),
+      "读取本设备笔记库中各级 .gitignore；匹配的文件不会上传、下载或删除。规则文件本身不会自动同步。"
+    );
+    new Setting(rules)
+      .setName("编辑根目录 .gitignore")
+      .setDesc("每行填写一个 Git 忽略规则；也可以用其他工具编辑子目录中的规则。")
+      .addButton(b => b.setButtonText("编辑").onClick(() => new GitIgnoreModal(this.app, this.plugin).open()));
 
     const advanced = root.createEl("details", { cls: "rs-section" });
     advanced.createEl("summary", { text: "高级设置" });
@@ -470,6 +494,41 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
   }
 }
 
+export class GitIgnoreModal extends Modal {
+  constructor(app: App, readonly plugin: RemotelySavePlugin) {
+    super(app);
+  }
+
+  async onOpen() {
+    this.modalEl.addClass("rs-gitignore-modal");
+    this.contentEl.createEl("h2", { text: "编辑根目录 .gitignore" });
+    this.contentEl.createEl("p", { text: "每行一条 Git 忽略规则；匹配的文件不会上传、下载或被同步删除。规则只保存在本设备。" });
+    try {
+      const adapter = this.app.vault.adapter;
+      const original = await adapter.exists(".gitignore") ? await adapter.read(".gitignore") : null;
+      const editor = this.contentEl.createEl("textarea", { cls: "rs-gitignore-editor" });
+      editor.value = original ?? "";
+      editor.placeholder = "private/\n*.tmp\n!keep.tmp";
+      new Setting(this.contentEl)
+        .addButton(b => b.setButtonText("取消").onClick(() => this.close()))
+        .addButton(b => b.setButtonText("保存").setCta().onClick(async () => {
+          try {
+            if (this.plugin.isSyncing) throw new Error("同步进行中，请完成后再保存规则。");
+            await saveRootGitIgnore(adapter, original, editor.value);
+            new Notice(".gitignore 已保存，下次同步时生效。");
+            this.close();
+          } catch (error) {
+            new Notice((error as Error).message, 10000);
+          }
+        }));
+    } catch (error) {
+      this.contentEl.createEl("p", { text: `无法读取 .gitignore：${(error as Error).message}` });
+    }
+  }
+
+  onClose() { this.contentEl.empty(); }
+}
+
 export class OnedriveAuthModal extends Modal {
   constructor(app: App, readonly plugin: RemotelySavePlugin) {
     super(app);
@@ -478,10 +537,11 @@ export class OnedriveAuthModal extends Modal {
   async onOpen() {
     this.contentEl.createEl("h2", { text: "连接 OneDrive" });
     try {
-      const { authUrl, verifier } = await getAuthUrlAndVerifier(
+      const { authUrl, verifier, state } = await getAuthUrlAndVerifier(
         this.plugin.settings.onedrive.clientID,
         this.plugin.settings.onedrive.authority
       );
+      await saveOneDriveAuthSession(this.plugin.db, this.plugin.vaultRandomID, verifier, state);
       this.plugin.oauth2Info.verifier = verifier;
       this.contentEl.createEl("p", {
         text: "在微软页面完成授权后返回 Obsidian。取消或失败不会清除现有账号。",

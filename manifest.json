@@ -1,10 +1,10 @@
 {
-  "id": "remotely-save",
+  "id": "remotely-save-local",
   "name": "Remotely Save 本地版",
-  "version": "0.6.2",
+  "version": "0.7.2",
   "minAppVersion": "1.5.0",
   "description": "集成同步控制台，直接连接 OneDrive，保留现有授权与同步配置。",
   "author": "Remotely Save contributors / local fork",
   "authorUrl": "https://github.com/fyears",
-  "isDesktopOnly": true
+  "isDesktopOnly": false
 }

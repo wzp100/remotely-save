@@ -4,6 +4,8 @@ import { FakeFs } from "./fsAll";
 import { TFile, TFolder, type Vault } from "obsidian";
 import { mkdirpInVault, statFix, unixTimeToStr } from "./misc";
 import { listFilesInObsFolder } from "./obsFolderLister";
+import { loadGitIgnore } from "./gitignore";
+import { SELF_PLUGIN_FILES } from "./syncPlan";
 import type { Profiler } from "./profiler";
 
 export class FakeFsLocal extends FakeFs {
@@ -14,6 +16,7 @@ export class FakeFsLocal extends FakeFs {
   pluginID: string;
   profiler: Profiler | undefined;
   deleteToWhere: "obsidian" | "system";
+  syncLocalPlugin: boolean;
   kind: "local";
   constructor(
     vault: Vault,
@@ -22,7 +25,8 @@ export class FakeFsLocal extends FakeFs {
     configDir: string,
     pluginID: string,
     profiler: Profiler | undefined,
-    deleteToWhere: "obsidian" | "system"
+    deleteToWhere: "obsidian" | "system",
+    syncLocalPlugin = false
   ) {
     super();
 
@@ -33,6 +37,7 @@ export class FakeFsLocal extends FakeFs {
     this.pluginID = pluginID;
     this.profiler = profiler;
     this.deleteToWhere = deleteToWhere;
+    this.syncLocalPlugin = syncLocalPlugin;
     this.kind = "local";
   }
 
@@ -115,6 +120,22 @@ export class FakeFsLocal extends FakeFs {
       this.profiler?.insert("finish syncConfigDir");
     }
 
+    // Program updates can be synchronized without enabling all Obsidian settings.
+    if (!this.syncConfigDir && this.syncLocalPlugin) {
+      const pluginDir = `${this.configDir}/plugins/${this.pluginID}`;
+      const paths = [this.configDir, `${this.configDir}/plugins`, pluginDir, ...SELF_PLUGIN_FILES.map(name => `${pluginDir}/${name}`)];
+      const existing = new Set(local.map(e => e.key));
+      for (const path of paths) {
+        if (!await this.vault.adapter.exists(path)) continue;
+        const stat = await statFix(this.vault, path);
+        const key = stat.type === "folder" ? `${path}/` : path;
+        if (!existing.has(key)) {
+          local.push({ key, keyRaw: key, mtimeCli: stat.mtime, mtimeSvr: stat.mtime, size: stat.size, sizeRaw: stat.size });
+          existing.add(key);
+        }
+      }
+    }
+
     this.profiler?.insert("finish walk for local");
     this.profiler?.removeIndent();
     return local;
@@ -122,6 +143,10 @@ export class FakeFsLocal extends FakeFs {
 
   async walkPartial(): Promise<Entity[]> {
     return await this.walk();
+  }
+
+  async loadGitIgnore(files: Entity[]) {
+    return await loadGitIgnore(this.vault.adapter, files);
   }
 
   async stat(key: string): Promise<Entity> {

@@ -2,10 +2,11 @@ import { strict as assert } from "node:assert";
 import { moment } from "obsidian";
 import type { Entity, RemotelySavePluginSettings } from "../src/baseTypes";
 import { executePlan, syncer } from "../src/sync";
+import { FakeFsLocal } from "../src/fsLocal";
 import { prepareSelfPluginPlan } from "../src/selfPluginSync";
 import { includePath, planSync, type BasicHistory } from "../src/syncPlan";
 
-const root = ".obsidian/plugins/remotely-save/";
+const root = ".obsidian/plugins/remotely-save-local/";
 const names = ["main.js", "styles.css", "manifest.json"];
 const config = (extra: Record<string, unknown> = {}) => ({
   serviceType: "onedrive", syncConfigDir: true, syncDirection: "bidirectional",
@@ -53,7 +54,7 @@ class MemoryFs {
 function bundle(version: string, name: string, time: number, suffix = version) {
   const fs = new MemoryFs();
   for (const dir of [".obsidian/", ".obsidian/plugins/", root]) fs.put(dir, "", time);
-  fs.put(root + "manifest.json", JSON.stringify({ id: "remotely-save", name, version }), time);
+  fs.put(root + "manifest.json", JSON.stringify({ id: "remotely-save-local", name, version }), time);
   fs.put(root + "main.js", `code-${suffix}`, time);
   fs.put(root + "styles.css", `styles-${suffix}`, time);
   fs.put(root + "data.json", `private-${suffix}`, time);
@@ -79,8 +80,26 @@ describe("Remotely Save program file synchronization", () => {
     for (const name of ["data.json", "other-private.txt", "nested/main.js", "Data.json"]) {
       assert.equal(includePath(root + name, config(), ".obsidian"), false);
     }
-    assert.equal(includePath(root + "main.js", config({ syncConfigDir: false }), ".obsidian"), false);
+    assert.equal(includePath(root + "main.js", config({ syncConfigDir: false }), ".obsidian"), true);
+    assert.equal(includePath(root + "main.js", config({ syncConfigDir: true, syncLocalPlugin: false }), ".obsidian"), false);
+    assert.equal(includePath(".obsidian/plugins/other/data.json", config({ syncConfigDir: false }), ".obsidian"), false);
     assert.equal(includePath(".obsidian/plugins/remotely-save-console/main.js", config(), ".obsidian"), false);
+    for (const name of ["main.js", "manifest.json", "styles.css", "data.json"]) {
+      assert.equal(includePath(".obsidian/plugins/remotely-save/" + name, config(), ".obsidian"), false);
+    }
+  });
+
+  it("discovers only the program bundle when other configuration sync is disabled", async () => {
+    const directories = new Set([".obsidian", ".obsidian/plugins", ".obsidian/plugins/remotely-save-local"]);
+    const files = new Set(names.map(name => root + name));
+    files.add(root + "data.json");
+    const adapter = {
+      exists: async (key: string) => directories.has(key) || files.has(key),
+      stat: async (key: string) => ({ type: directories.has(key) ? "folder" : "file", mtime: 1000, ctime: 1000, size: 100 }),
+    };
+    const vault = { adapter, getAllLoadedFiles: () => [] };
+    const local = new FakeFsLocal(vault as any, false, false, ".obsidian", "remotely-save-local", undefined, "system", true);
+    assert.deepEqual((await local.walk()).map(x => x.key), [".obsidian/", ".obsidian/plugins/", root, ...names.map(name => root + name)]);
   });
 
   it("replaces an older cloud fork as a bundle without touching either data file", async () => {
@@ -138,7 +157,7 @@ describe("Remotely Save program file synchronization", () => {
     const blocked = await prepare(local, remote, [], pushOnly);
     assert.ok(blocked.filter(a => names.some(n => a.key === root + n)).every(a => a.operation === "skip"));
     const plan = await prepare(local, remote);
-    remote.put(root + "manifest.json", JSON.stringify({ id: "remotely-save", name: "Remotely Save 本地版", version: "0.6.4" }), 3000);
+    remote.put(root + "manifest.json", JSON.stringify({ id: "remotely-save-local", name: "Remotely Save 本地版", version: "0.6.4" }), 3000);
     await assert.rejects(() => run(plan, local, remote), /同步过程中发生新修改/);
     assert.deepEqual(local.writes.concat(remote.writes), []);
   });

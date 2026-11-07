@@ -18,7 +18,7 @@ function parseManifest(data: ArrayBuffer): Manifest {
   } catch {
     throw new Error("Remotely Save 的插件清单无法读取，已停止同步插件程序文件。");
   }
-  if (value.id !== "remotely-save" || typeof value.name !== "string" ||
+  if (value.id !== "remotely-save-local" || typeof value.name !== "string" ||
       typeof value.version !== "string" || !/^\d+\.\d+\.\d+$/.test(value.version)) {
     throw new Error("Remotely Save 的插件清单无效，已停止同步插件程序文件。");
   }

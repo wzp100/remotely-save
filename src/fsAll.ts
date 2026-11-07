@@ -1,8 +1,10 @@
 import isEqual from "lodash/isEqual";
 import { nanoid } from "nanoid";
 import type { Entity } from "./baseTypes";
+import type { GitIgnoreFilter } from "./gitignore";
 
 export abstract class FakeFs {
+  loadGitIgnore?(files: Entity[]): Promise<GitIgnoreFilter>;
   abstract kind: string;
   abstract walk(): Promise<Entity[]>;
   abstract walkPartial(): Promise<Entity[]>;

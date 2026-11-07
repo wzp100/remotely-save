@@ -73,6 +73,7 @@ export interface OnedriveConfig {
     username: string;
     credentialsShouldBeDeletedAtTime?: number;
     remoteBaseDir?: string;
+    syncProfileID?: string;
     emptyFile: "skip" | "error";
     kind: "onedrive";
 }
@@ -104,6 +105,7 @@ export interface RemotelySavePluginSettings {
     syncOnSaveAfterMilliseconds?: number;
     concurrency?: number;
     syncConfigDir?: boolean;
+    syncLocalPlugin?: boolean;
     syncBookmarks?: boolean;
     syncUnderscoreItems?: boolean;
     lang?: LangTypeAndAuto;
@@ -111,6 +113,7 @@ export interface RemotelySavePluginSettings {
     skipSizeLargerThan?: number;
     ignorePaths?: string[];
     onlyAllowPaths?: string[];
+    respectGitignore?: boolean;
     enableStatusBarInfo?: boolean;
     deleteToWhere?: "system" | "obsidian";
     conflictAction?: ConflictActionType;

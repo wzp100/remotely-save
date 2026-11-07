@@ -1,5 +1,6 @@
 // Local fork: retain auth error, folder creation, and token-expiry fixes.
-import { CryptoProvider, PublicClientApplication } from "@azure/msal-node";
+import { base64url } from "rfc4648";
+import { sha256 } from "@noble/hashes/sha256";
 import type { AuthenticationProvider } from "@microsoft/microsoft-graph-client";
 import type {
   DriveItem,
@@ -8,7 +9,7 @@ import type {
   User,
 } from "@microsoft/microsoft-graph-types";
 import cloneDeep from "lodash/cloneDeep";
-import { request, requestUrl } from "obsidian";
+import { Platform, request, requestUrl, type RequestUrlParam } from "obsidian";
 import {
   COMMAND_CALLBACK_ONEDRIVE,
   DEFAULT_CONTENT_TYPE,
@@ -40,6 +41,14 @@ const fetchOrThrow = async (
   throw error;
 };
 
+const requestUrlOrThrow = async (params: RequestUrlParam, action: string) => {
+  const response = await requestUrl({ ...params, throw: false });
+  if (response.status >= 200 && response.status < 300) return response;
+  const error = new Error(`${action}失败：HTTP ${response.status}${response.text ? `：${response.text.slice(0, 500)}` : ""}`) as Error & { status?: number };
+  error.status = response.status;
+  throw error;
+};
+
 export const DEFAULT_ONEDRIVE_CONFIG: OnedriveConfig = {
   accessToken: "",
   clientID: ONEDRIVE_CLIENT_ID ?? "",
@@ -62,33 +71,29 @@ export async function getAuthUrlAndVerifier(
   clientID: string,
   authority: string
 ) {
-  const cryptoProvider = new CryptoProvider();
-  const { verifier, challenge } = await cryptoProvider.generatePkceCodes();
-
-  const pkceCodes = {
-    challengeMethod: "S256", // Use SHA256 Algorithm
-    verifier: verifier,
-    challenge: challenge,
-  };
-
-  const authCodeUrlParams = {
-    redirectUri: REDIRECT_URI,
-    scopes: SCOPES,
-    codeChallenge: pkceCodes.challenge, // PKCE Code Challenge
-    codeChallengeMethod: pkceCodes.challengeMethod, // PKCE Code Challenge Method
-  };
-
-  const pca = new PublicClientApplication({
-    auth: {
-      clientId: clientID,
-      authority: authority,
-    },
-  });
-  const authCodeUrl = await pca.getAuthCodeUrl(authCodeUrlParams);
+  if (!clientID || !authority) throw new Error("缺少 OneDrive 应用 ID 或授权地址。");
+  const url = new URL(`${authority.replace(/\/+$/, "")}/oauth2/v2.0/authorize`);
+  if (url.protocol !== "https:") throw new Error("OneDrive 授权地址必须使用 HTTPS。");
+  const random = (size: number) => base64url.stringify(window.crypto.getRandomValues(new Uint8Array(size)), { pad: false });
+  const verifier = random(32);
+  const state = random(24);
+  const digest = sha256(new TextEncoder().encode(verifier));
+  const challenge = base64url.stringify(digest, { pad: false });
+  url.search = new URLSearchParams({
+    client_id: clientID,
+    response_type: "code",
+    redirect_uri: REDIRECT_URI,
+    response_mode: "query",
+    scope: SCOPES.join(" "),
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+  }).toString();
 
   return {
-    authUrl: authCodeUrl,
-    verifier: verifier,
+    authUrl: url.toString(),
+    verifier,
+    state,
   };
 }
 
@@ -722,12 +727,8 @@ export class FakeFsOnedrive extends FakeFs {
   async _putArrayBuffer(pathFragOrig: string, payload: ArrayBuffer) {
     const theUrl = this._buildUrl(pathFragOrig);
     console.debug(`putArrayBuffer, theUrl=${theUrl}`);
-    // TODO:
-    // 20220401: On Android, requestUrl has issue that text becomes base64.
-    // Use fetch everywhere instead!
-    // biome-ignore lint/correctness/noConstantCondition: hard code
-    if (false /*VALID_REQURL*/) {
-      const res = await requestUrl({
+    if (Platform.isMobile && VALID_REQURL) {
+      const res = await requestUrlOrThrow({
         url: theUrl,
         method: "PUT",
         body: payload,
@@ -736,7 +737,7 @@ export class FakeFsOnedrive extends FakeFs {
           "Content-Type": DEFAULT_CONTENT_TYPE,
           Authorization: `Bearer ${await this.authGetter.getAccessToken()}`,
         },
-      });
+      }, "上传 OneDrive 文件");
       return res.json as DriveItem | UploadSession;
     } else {
       const res = await fetchOrThrow(
@@ -777,12 +778,8 @@ export class FakeFsOnedrive extends FakeFs {
       }, len=${rangeEnd - rangeStart}, size=${size}`
     );
     // NO AUTH HEADER here!
-    // TODO:
-    // 20220401: On Android, requestUrl has issue that text becomes base64.
-    // Use fetch everywhere instead!
-    // biome-ignore lint/correctness/noConstantCondition: hard code
-    if (false /*VALID_REQURL*/) {
-      const res = await requestUrl({
+    if (Platform.isMobile && VALID_REQURL) {
+      const res = await requestUrlOrThrow({
         url: theUrl,
         method: "PUT",
         body: bufferToArrayBuffer(payload.subarray(rangeStart, rangeEnd)),
@@ -792,7 +789,7 @@ export class FakeFsOnedrive extends FakeFs {
           "Content-Range": `bytes ${rangeStart}-${rangeEnd - 1}/${size}`,
           /* "Cache-Control": "no-cache", not allowed here!!! */
         },
-      });
+      }, "上传 OneDrive 文件分片");
       return res.json as DriveItem | UploadSession;
     } else {
       const res = await fetchOrThrow(
@@ -1078,13 +1075,12 @@ export class FakeFsOnedrive extends FakeFs {
       `${key}?$select=@microsoft.graph.downloadUrl`
     );
     const downloadUrl: string = rsp["@microsoft.graph.downloadUrl"];
-    // biome-ignore lint/correctness/noConstantCondition: <explanation>
-    if (false /*VALID_REQURL*/) {
+    if (Platform.isMobile && VALID_REQURL) {
       const content = (
-        await requestUrl({
+        await requestUrlOrThrow({
           url: downloadUrl,
           headers: { "Cache-Control": "no-cache" },
-        })
+        }, "下载 OneDrive 文件")
       ).arrayBuffer;
       return content;
     } else {

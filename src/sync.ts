@@ -112,9 +112,10 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     const password = await remote.isPasswordOk();
     if (!password.ok) throw new Error(`同步加密配置不匹配：${password.reason}`);
     const [rawLocal, remoteFiles, previous] = await Promise.all([local.walk(), remote.walk(), getAllPrevSyncRecordsByVaultAndProfile(db,vault,profile)]);
+    const gitignore = settings.respectGitignore === false ? undefined : await local.loadGitIgnore?.(rawLocal);
     const localFiles: Entity[] = [];
     for (const entity of rawLocal) localFiles.push(await remote.encryptEntity(entity));
-    const plan = planSync(localFiles, remoteFiles, previous, settings, configDir);
+    const plan = planSync(localFiles, remoteFiles, previous, settings, configDir, gitignore);
     await prepareSelfPluginPlan(plan, local, remote, settings, configDir);
     for(const action of plan)if(action.operation==="upload"&&(action.local!.size??action.local!.sizeRaw)===0&&!remote.allowEmptyFile()){
       if(settings.onedrive?.emptyFile==="error")throw new Error(`远端不支持空文件：${action.key}`);

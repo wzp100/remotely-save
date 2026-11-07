@@ -241,7 +241,8 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
         );
       });
     this.toggle(rules, "同步 Obsidian 配置", !!s.syncConfigDir, (v) =>
-      this.save({ syncConfigDir: v })
+      this.save({ syncConfigDir: v }),
+      "包含本插件的程序文件；本插件的 data.json 和授权始终保留在各设备上。"
     );
     this.toggle(rules, "同步书签", !!s.syncBookmarks, (v) =>
       this.save({ syncBookmarks: v })
@@ -440,11 +441,12 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     parent: HTMLElement,
     label: string,
     value: boolean,
-    save: (v: boolean) => Promise<void>
+    save: (v: boolean) => Promise<void>,
+    description?: string
   ) {
-    new Setting(parent)
-      .setName(label)
-      .addToggle((t) =>
+    const setting = new Setting(parent).setName(label);
+    if (description) setting.setDesc(description);
+    setting.addToggle((t) =>
         t.setValue(value).onChange((v) => this.action(t, () => save(v)))
       );
   }

@@ -4,7 +4,8 @@ import type { FakeFs } from "./fsAll";
 import type { FakeFsEncrypt } from "./fsEncrypt";
 import type { InternalDBs } from "./localdb";
 import { clearPrevSyncRecordByVaultAndProfile, getAllPrevSyncRecordsByVaultAndProfile, insertSyncPlanRecordByVault, upsertPrevSyncRecordByVaultAndProfile } from "./localdb";
-import { enforceProtection, modified, planSync, sameMetadata, type Action, type BasicHistory } from "./syncPlan";
+import { enforceProtection, isSelfPluginFile, modified, planSync, sameMetadata, selfPluginPrefix, type Action, type BasicHistory } from "./syncPlan";
+import { prepareSelfPluginPlan } from "./selfPluginSync";
 export type SyncPlanType = Record<string, MixedEntity & { operation?: string }>;
 export interface SyncSummary { dry: boolean; upload: number; download: number; deleteLocal: number; deleteRemote: number; folders: number; skipped: number; conflicts: number; actions: { path: string; operation: string }[]; }
 
@@ -13,7 +14,7 @@ export function isMissingError(error: unknown): boolean {
   return e.status===404||e.statusCode===404||e.code==="ENOENT"||/^Request failed, status 404\b/.test(e.message??"")||/\bdoes(?: not|n't) exist(?:! cannot stat for local| cannot run stat)/.test(e.message??"");
 }
 
-export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs, settings: RemotelySavePluginSettings, save: (history: BasicHistory) => Promise<void>, forget: (key: string) => Promise<void>, progress: (action: Action, done: number) => Promise<void>) {
+export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs, settings: RemotelySavePluginSettings, save: (history: BasicHistory) => Promise<void>, forget: (key: string) => Promise<void>, progress: (action: Action, done: number) => Promise<void>, configDir = ".obsidian") {
   const localDirs = new Set(plan.filter(a => a.key.endsWith("/") && a.local).map(a => a.key));
   const remoteDirs = new Set(plan.filter(a => a.key.endsWith("/") && a.remote).map(a => a.key));
   const folderJobs=new Map<string,Promise<void>>();
@@ -85,11 +86,23 @@ export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs,
   };
   const sorted=[...plan].sort((a,b)=>a.key.split("/").length-b.key.split("/").length||a.key.localeCompare(b.key));
   for(const a of sorted.filter(a=>a.key.endsWith("/")))await perform(a);
-  const files=sorted.filter(a=>!a.key.endsWith("/"));let cursor=0,failure:unknown;
+  const files=sorted.filter(a=>!a.key.endsWith("/") && !isSelfPluginFile(a.key,configDir));let cursor=0,failure:unknown;
   const width=Number.isFinite(settings.concurrency)?Math.min(10,Math.max(1,Math.trunc(settings.concurrency!))):5;
   const worker=async()=>{while(!failure&&cursor<files.length){const a=files[cursor++];try{await perform(a);}catch(error){failure=error;}}};
   await Promise.all(Array.from({length:Math.min(width,files.length)},worker));
   if(failure)throw failure;
+  const manifestKey = `${selfPluginPrefix(configDir)}manifest.json`;
+  const manifest = plan.find(a => a.key === manifestKey);
+  const pluginFiles = sorted.filter(a => isSelfPluginFile(a.key, configDir))
+    .sort((a, b) => Number(a.key === manifestKey) - Number(b.key === manifestKey));
+  // The manifest is the version marker, so update it only after the other files.
+  for (const a of pluginFiles) {
+    if (manifest && (a.operation === "upload" || a.operation === "download")) {
+      await current(local, manifest.local, manifestKey, false);
+      await current(remote, manifest.remote, manifestKey, true);
+    }
+    await perform(a);
+  }
 }
 
 export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEncrypt, _profiler: unknown, db: InternalDBs, source: SyncTriggerSourceType, profile: string, vault: string, configDir: string, settings: RemotelySavePluginSettings, _version: string, _configSaver: () => Promise<unknown>, _protectMessage: unknown, mark: (value: boolean) => Promise<void>, notify: (s: SyncTriggerSourceType, step: number) => Promise<void>, reportError: (s: SyncTriggerSourceType, error: Error) => Promise<void>, ribbon: (s: SyncTriggerSourceType, step: number) => Promise<void>, status: (s: SyncTriggerSourceType, step: number, ok: boolean) => Promise<void>, progress: (s: SyncTriggerSourceType, done: number, total: number, key: string, decision: string) => Promise<void>): Promise<SyncSummary> {
@@ -102,6 +115,7 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     const localFiles: Entity[] = [];
     for (const entity of rawLocal) localFiles.push(await remote.encryptEntity(entity));
     const plan = planSync(localFiles, remoteFiles, previous, settings, configDir);
+    await prepareSelfPluginPlan(plan, local, remote, settings, configDir);
     for(const action of plan)if(action.operation==="upload"&&(action.local!.size??action.local!.sizeRaw)===0&&!remote.allowEmptyFile()){
       if(settings.onedrive?.emptyFile==="error")throw new Error(`远端不支持空文件：${action.key}`);
       action.operation="skip";
@@ -113,7 +127,7 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     const summary: SyncSummary = { dry:source === "dry", upload:count("upload"), download:count("download"), deleteLocal:count("delete_local"), deleteRemote:count("delete_remote"), folders:count("mkdir_local")+count("mkdir_remote"), skipped:count("skip"), conflicts:plan.filter(a=>a.conflict).length, actions:plan.filter(a=>!["equal","skip","forget"].includes(a.operation)).map(a=>({path:a.key,operation:a.operation})) };
     if (source !== "dry") {
       enforceProtection(plan,settings.protectModifyPercentage ?? 50);
-      await executePlan(plan,local,remote,settings,record=>upsertPrevSyncRecordByVaultAndProfile(db,vault,profile,record),key=>clearPrevSyncRecordByVaultAndProfile(db,vault,profile,key),async(a,n)=>progress(source,n,plan.length,a.key,a.operation));
+      await executePlan(plan,local,remote,settings,record=>upsertPrevSyncRecordByVaultAndProfile(db,vault,profile,record),key=>clearPrevSyncRecordByVaultAndProfile(db,vault,profile,key),async(a,n)=>progress(source,n,plan.length,a.key,a.operation),configDir);
     }
     ok=true; await notify(source,8); return summary;
   } catch (error) {

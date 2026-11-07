@@ -16,6 +16,10 @@ export function sameSides(local: Entity, remote: Entity): boolean {
   return (local.sizeEnc ?? local.size ?? local.sizeRaw) === (remote.sizeEnc ?? remote.sizeRaw)
     && Math.abs(modified(local) - modified(remote)) < 1000;
 }
+export const SELF_PLUGIN_FILES = ["main.js", "styles.css", "manifest.json"] as const;
+export const selfPluginPrefix = (configDir: string) => `${configDir}/plugins/remotely-save/`;
+export const isSelfPluginFile = (key: string, configDir: string) =>
+  SELF_PLUGIN_FILES.some(name => key === selfPluginPrefix(configDir) + name);
 export function includePath(key: string, settings: RemotelySavePluginSettings, configDir: string): boolean {
   if (!key || key.startsWith("/") || key.includes("\\") || key.split("/").some(p => p === "." || p === "..")) throw new Error(`无效的同步路径：${key}`);
   const parts = key.split("/").filter(Boolean);
@@ -23,7 +27,9 @@ export function includePath(key: string, settings: RemotelySavePluginSettings, c
   if (parts.some(p => prohibited.has(p)) || key.startsWith("_debug_remotely_save/") || key.startsWith("_remotely-save-metadata-on-remote.")) return false;
   if (key === configDir + "/" || key.startsWith(configDir + "/")) {
     if(key===`${configDir}/workspace.json`||key.startsWith(`${configDir}/workspace/`))return false;
-    if (key.startsWith(`${configDir}/plugins/remotely-save/`) || key.startsWith(`${configDir}/plugins/remotely-save-console/`)) return false;
+    const selfPrefix = selfPluginPrefix(configDir);
+    if (key.toLowerCase().startsWith(selfPrefix.toLowerCase()) && key !== selfPrefix && !isSelfPluginFile(key, configDir)) return false;
+    if (key.toLowerCase().startsWith(`${configDir}/plugins/remotely-save-console/`.toLowerCase())) return false;
     if (!settings.syncConfigDir && !(settings.syncBookmarks && key === `${configDir}/bookmarks.json`)) return false;
   } else if (parts.some(p => p.startsWith(".") || (!settings.syncUnderscoreItems && p.startsWith("_")))) return false;
   if ((settings.ignorePaths ?? []).some(pattern => new RegExp(pattern).test(key))) return false;

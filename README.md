@@ -1,4 +1,4 @@
-# Remotely Save 本地版 0.6.1
+# Remotely Save 本地版 0.6.2
 
 集成同步控制台的桌面版 Obsidian 插件，主要使用 Microsoft OneDrive 应用目录。沿用插件 ID `remotely-save`，现有 data.json、OneDrive 微软账号授权、本地数据库和同步历史继续使用。
 
@@ -17,7 +17,8 @@
 - OneDrive 继续使用原 client ID、应用目录权限和授权回调。过期时间按秒换算毫秒，刷新响应未轮换 refresh token 时保留原值。
 - 增量列表按条目 ID 去重，以最后一次结果为准，排除删除标记。规范：[Microsoft Graph delta](https://learn.microsoft.com/en-us/graph/api/driveitem-delta)。
 - 不递归删除文件夹，避免误删不在同步范围内的内容；已经清空的目录可能保留。
-- 同步配置时排除自身插件和已经合并的独立控制台，防止云端旧代码覆盖当前插件；workspace.json 和内部调试目录也不参与同步。
+- 启用配置同步后，自身插件只同步 `main.js`、`manifest.json`、`styles.css`；自身 `data.json` 和其他私有文件始终排除。程序文件按版本成组同步，不用旧版本覆盖新版本，同版本冲突时停止覆盖；workspace.json、独立控制台和内部调试目录不参与同步。
+- 每台设备的本插件授权与设置独立保存。已经运行旧版的其他设备需先安装本地版，才能遵守这条规则；本地版仅支持桌面端。
 - 仅测试了当前 macOS Obsidian 和 OneDrive；其他基础网盘没有进行新的端到端实测。
 
 ## 构建与测试

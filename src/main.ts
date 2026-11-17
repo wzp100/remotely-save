@@ -27,6 +27,12 @@ import { type InternalDBs, clearAllLoggerOutputRecords, clearExpiredSyncPlanReco
 import { changeMobileStatusBar } from "./misc";
 import { DEFAULT_PROFILER_CONFIG, Profiler } from "./profiler";
 import { RemotelySaveSettingTab } from "./settings";
+import { BACKUP_KEEP_DAYS, backupRoot, cleanBackups } from "./conflictBackups";
+import { setOnedriveDeltaStore } from "./fsOnedrive";
+import type { DeltaCache } from "./onedriveDelta";
+
+const RESUME_MIN_AWAY_MS = 60_000;
+const RESUME_MIN_GAP_MS = 60_000;
 import { SyncAlgoV3Modal } from "./syncAlgoV3Notice";
 import { consumeOneDriveAuthSession } from "./onedriveAuthSession";
 import { getSyncProfileID } from "./onedriveFolder";
@@ -113,6 +119,8 @@ const getStatusBarShortMsgFromSyncSource = (t: (x: TransItemType, vars?: any) =>
             return t("statusbar_sync_source_auto_once_init");
         case "auto_sync_on_save":
             return t("statusbar_sync_source_auto_sync_on_save");
+        case "auto_on_resume":
+            return t("statusbar_sync_source_auto");
         default:
             throw Error(`no translate for ${s}`);
     }
@@ -354,6 +362,11 @@ export default class RemotelySavePlugin extends Plugin {
         try {
             this.lastSyncSummary = await syncer(fsLocal, fsRemote, fsEncrypt, profiler, this.db, triggerSource, profileID, this.vaultRandomID, this.app.vault.configDir, this.settings, this.manifest.version, configSaver, getProtectError, markIsSyncingFunc, notifyFunc, errNotifyFunc, ribboonFunc, statusBarFunc, callbackSyncProcess);
             this.syncPhase = "completed";
+            if (triggerSource !== "dry") {
+                // Config conflict backups stay on this device only; drop batches older than the retention period.
+                void cleanBackups(this.app.vault.adapter, backupRoot(this.app.vault.configDir, this.manifest.id), BACKUP_KEEP_DAYS * 86400000)
+                    .catch((e) => console.debug("remotely-save-local: backup cleanup", e));
+            }
         }
         catch (error) {
             this.syncPhase = "failed";
@@ -599,11 +612,13 @@ export default class RemotelySavePlugin extends Plugin {
             this.enableInitSyncIfSet();
             this.toggleSyncOnSaveIfSet();
         }
+        this.enableSyncOnResume();
         // compare versions and read new versions
         const { oldVersion } = await upsertPluginVersionByVault(this.db, this.vaultRandomID, this.manifest.version);
     }
     async onunload() {
         console.info(`unloading plugin ${this.manifest.id}`);
+        setOnedriveDeltaStore(undefined);
         this.syncRibbon = undefined;
         if (this.appContainerObserver !== undefined) {
             this.appContainerObserver.disconnect();
@@ -813,6 +828,16 @@ export default class RemotelySavePlugin extends Plugin {
         const { db, vaultRandomID } = await prepareDBs(vaultBasePath, vaultRandomIDFromOldConfigFile, profileID);
         this.db = db;
         this.vaultRandomID = vaultRandomID;
+        // The OneDrive listing snapshot is per device and per vault; it never goes into data.json.
+        const key = `${vaultRandomID}-onedriveDeltaSnapshot`;
+        setOnedriveDeltaStore({
+            load: async (scope) => {
+                const v = (await db.simpleKVForMiscTbl.getItem(key)) as DeltaCache | null;
+                return v && v.scope === scope ? v : undefined;
+            },
+            save: async (cache) => { await db.simpleKVForMiscTbl.setItem(key, cache); },
+            clear: async () => { await db.simpleKVForMiscTbl.removeItem(key); },
+        });
     }
     enableAutoSyncIfSet(){
  if(this.autoRunIntervalID!==undefined)window.clearInterval(this.autoRunIntervalID);
@@ -874,6 +899,22 @@ export default class RemotelySavePlugin extends Plugin {
         leading: false,
         trailing: true,
     });
+    /**
+     * Phones keep Obsidian suspended in the background, so notes can be stale when it comes back.
+     * Sync once on return if it was away for a while and the last sync is not recent.
+     */
+    enableSyncOnResume() {
+        let hiddenAt: number | undefined;
+        this.registerDomEvent(document, "visibilitychange", () => {
+            if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
+            const away = hiddenAt === undefined ? 0 : Date.now() - hiddenAt;
+            hiddenAt = undefined;
+            const sinceLast = Date.now() - (this.lastSyncFinishedAt ?? this.lastSyncSuccessAt ?? 0);
+            if (this.settings.syncOnResume === false || this.isSyncing || !this.settings.agreeToUseSyncV3) return;
+            if (away < RESUME_MIN_AWAY_MS || sinceLast < RESUME_MIN_GAP_MS) return;
+            void this.syncRun("auto_on_resume").catch(() => {});
+        });
+    }
     toggleSyncOnSaveIfSet(){
  this.syncEvent?.off("SYNC_DONE",this._syncOnSaveEvent1);
  for(const event of ["modify","create","delete","rename"] as const)this.app.vault.off(event,this._syncOnSaveEvent2);

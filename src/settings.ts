@@ -21,6 +21,7 @@ import {
   BRAT_ID, BRAT_UPDATE_COMMAND, REPO, REPO_URL, UPDATE_CHECK_TTL,
   cachedUpdateCheck, compareVersions, fetchLatestRelease, storeUpdateCheck,
 } from "./updateInfo";
+import { BACKUP_KEEP_DAYS, backupRoot, cleanBackups, listBackups } from "./conflictBackups";
 
 const SERVICES: Record<string, string> = {
   onedrive: "OneDrive",
@@ -36,6 +37,7 @@ const SOURCE_LABELS: Record<SyncTriggerSourceType, string> = {
   auto: "自动同步",
   auto_once_init: "启动同步",
   auto_sync_on_save: "保存后同步",
+  auto_on_resume: "回到前台同步",
 };
 
 const OPERATIONS: Record<string, { label: string; icon: string; tone: string }> = {
@@ -45,6 +47,8 @@ const OPERATIONS: Record<string, { label: string; icon: string; tone: string }> 
   delete_remote: { label: "删除云端", icon: "trash", tone: "red" },
   mkdir_local: { label: "新建本地文件夹", icon: "folder", tone: "muted" },
   mkdir_remote: { label: "新建云端文件夹", icon: "folder", tone: "muted" },
+  rmdir_local: { label: "删除本地空文件夹", icon: "folder-x", tone: "red" },
+  rmdir_remote: { label: "删除云端空文件夹", icon: "folder-x", tone: "red" },
   equal: { label: "一致", icon: "check", tone: "muted" },
   forget: { label: "清理记录", icon: "eraser", tone: "muted" },
   skip: { label: "跳过", icon: "minus", tone: "muted" },
@@ -59,6 +63,8 @@ const formatDuration = (ms?: number) => {
   if (s < 60) return `${s} 秒`;
   return s % 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s / 60} 分钟`;
 };
+
+const formatBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
 const formatTime = (ms?: number) => (ms ? new Date(ms).toLocaleString() : "暂无记录");
 
@@ -276,6 +282,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       ["下载", summary.download, "arrow-down", "green"],
       ["删除", summary.deleteLocal + summary.deleteRemote, "trash", "red"],
       ["冲突", summary.conflicts, "git-merge", "yellow"],
+      ["空文件夹", summary.removedFolders ?? 0, "folder-x", "muted"],
     ];
     let any = false;
     for (const [label, n, ic, tone] of chips) {
@@ -286,6 +293,26 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       chip.createSpan({ text: `${label} ${n}` });
     }
     if (!any) stats.createSpan({ cls: "rs-chip tone-muted", text: "没有变化" });
+
+    const changed = summary.changedDuringSync ?? [];
+    if (changed.length) {
+      const note = detail.createDiv({ cls: "rs-muted rs-changed-note" });
+      note.setText(`${changed.length} 个文件在同步时正被修改（例如插件正在写入设置），这次跳过，下次同步处理：${changed.slice(0, 3).join("、")}${changed.length > 3 ? " 等" : ""}`);
+    }
+    const empty = summary.emptySkipped ?? [];
+    if (empty.length) {
+      const box = detail.createEl("details", { cls: "rs-empty-notes" });
+      const head = box.createEl("summary");
+      setIcon(head.createSpan({ cls: "rs-chip-icon" }), "file-x");
+      head.createSpan({ text: `${empty.length} 个空笔记没有上传：OneDrive 不能保存空文件，写入内容后会自动同步` });
+      const list = box.createDiv({ cls: "rs-ops-list" });
+      for (const path of empty.slice(0, 100)) {
+        const row = list.createDiv({ cls: "rs-op tone-muted" });
+        setIcon(row.createSpan({ cls: "rs-op-icon" }), "file");
+        const link = row.createEl("a", { cls: "rs-op-path", text: path, href: "#" });
+        link.addEventListener("click", (ev) => { ev.preventDefault(); void this.app.workspace.openLinkText(path, "", false); });
+      }
+    }
 
     if (summary.actions.length) {
       const list = detail.createEl("details", { cls: "rs-ops" });
@@ -405,6 +432,8 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       [-1, 1000, 5000, 10000, 30000, 60000], (n) => this.save({ initRunAfterMilliseconds: n }));
     this.interval(body, "保存后同步", "停止编辑多久后自动同步；间隔太短会频繁请求网络。", s.syncOnSaveAfterMilliseconds,
       [-1, 1000, 3000, 5000, 10000, 30000, 60000], (n) => this.save({ syncOnSaveAfterMilliseconds: n }));
+    this.toggle(body, "回到 Obsidian 时同步", "离开超过 1 分钟后切回 Obsidian（手机从后台回来、电脑窗口恢复）时同步一次；距上次同步不足 1 分钟则跳过。",
+      s.syncOnResume !== false, (v) => this.save({ syncOnResume: v }));
   }
 
   private renderContent(root: HTMLElement) {
@@ -458,6 +487,57 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
         d.setValue(String(s.protectModifyPercentage ?? 50)).onChange((v) =>
           this.action(d, () => this.save({ protectModifyPercentage: Number(v) })));
       });
+    this.renderBackups(body);
+  }
+
+  /** Conflict copies of notes are synced files; overwritten config files are backed up on this device only. */
+  private renderBackups(body: HTMLElement) {
+    const adapter = this.app.vault.adapter;
+    const root = backupRoot(this.app.vault.configDir, this.plugin.manifest.id);
+    const setting = new Setting(body).setName("冲突备份").setDesc("正在统计…");
+    let confirmAll = false;
+    const refresh = async () => {
+      const batches = await listBackups(adapter, root).catch(() => []);
+      const files = batches.reduce((n, b) => n + b.files, 0);
+      const bytes = batches.reduce((n, b) => n + b.bytes, 0);
+      setting.descEl.empty();
+      setting.descEl.appendText(batches.length
+        ? `本设备有 ${batches.length} 批配置备份，共 ${files} 个文件（${formatBytes(bytes)}），最近一次 ${relativeTime(batches[0].time)}；${BACKUP_KEEP_DAYS} 天后自动清理。`
+        : `本设备没有配置备份。被覆盖的 .obsidian 配置文件会备份在插件目录，${BACKUP_KEEP_DAYS} 天后自动清理。`);
+      setting.descEl.createEl("br");
+      setting.descEl.appendText("笔记的冲突副本是普通笔记，会同步到所有设备，可用右侧按钮搜索。");
+      setting.controlEl.toggleClass("rs-has-backups", batches.length > 0);
+    };
+    setting.addExtraButton((b) => b.setIcon("search").setTooltip("搜索笔记冲突副本").onClick(() => {
+      const search = (this.app as unknown as { internalPlugins?: { getPluginById(id: string): { instance?: { openGlobalSearch(q: string): void } } | null } })
+        .internalPlugins?.getPluginById("global-search")?.instance;
+      if (!search) { new Notice("请先在“核心插件”中启用“搜索”。"); return; }
+      search.openGlobalSearch('file:"(冲突 "');
+      (this.app as unknown as { setting?: { close(): void } }).setting?.close();
+    }));
+    const showInFolder = (this.app as unknown as { showInFolder?: (path: string) => void }).showInFolder;
+    if (Platform.isDesktopApp && showInFolder) {
+      setting.addExtraButton((b) => b.setIcon("folder-open").setTooltip("在文件管理器中打开备份目录").onClick(async () => {
+        if (!(await adapter.exists(root))) { new Notice("还没有备份。"); return; }
+        showInFolder.call(this.app, root);
+      }));
+    }
+    setting.addButton((b) => b.setButtonText("全部清理").onClick(async () => {
+      if (!confirmAll) {
+        confirmAll = true;
+        b.setButtonText("再点一次确认").setWarning();
+        window.setTimeout(() => { confirmAll = false; b.setButtonText("全部清理"); b.buttonEl.removeClass("mod-warning"); }, 4000);
+        return;
+      }
+      confirmAll = false;
+      b.setButtonText("全部清理"); b.buttonEl.removeClass("mod-warning");
+      try {
+        const n = await cleanBackups(adapter, root, 0);
+        new Notice(n ? `已清理 ${n} 批备份。` : "没有需要清理的备份。");
+      } catch (error) { new Notice(`清理失败：${(error as Error).message}`); }
+      await refresh();
+    }));
+    void refresh();
   }
 
   // ───────────────────────── version & updates ─────────────────────────

@@ -1,72 +1,56 @@
-# Remotely Save 本地版 0.7.9
+# Remotely Save (local fork)
 
-集成同步控制台的桌面和移动端 Obsidian 插件，主要使用 Microsoft OneDrive 应用目录。独立插件 ID 为 `remotely-save-local`，首次启用时可从同一设备上的旧版 `remotely-save` 读取设置和 OneDrive 授权。
+English | [简体中文](README.zh-cn.md)
 
-设置页顶部是同步状态面板：当前状态、进度与正在处理的文件、上次结果（上传/下载/删除/冲突）、可展开的操作清单和错误原因，并提供“立即同步”和“预览”。下方按“账号与连接、自动同步、同步内容、冲突与安全、版本与更新、高级”分组；“版本与更新”显示正在运行的版本、GitHub 最新发布与更新说明、云端程序版本、更新方式（BRAT / 程序同步）和运行环境，可一键检查更新、通过 BRAT 更新或在同步下载新版后重载插件；修改设置立即保存，不会重新加载页面。界面跟随 Obsidian 主题（含深色模式），手机窄屏自动改为单列。没有订阅账号、网站登录或付费服务入口。其他基础服务的已保存配置继续保留。
+An Obsidian plugin that syncs your vault with Microsoft OneDrive, on desktop (macOS, Windows, Linux) and mobile (iOS, Android). It is a fork of the open-source [Remotely Save](https://github.com/remotely-save/remotely-save) (Apache-2.0) without the upstream paid/subscription parts, with a rewritten sync loop and stronger conflict and deletion safeguards. The plugin ID is `remotely-save-local`, so it can sit next to the original plugin in the same vault (never enable both at once). The interface is in Chinese.
 
-## 安装与升级
+## Install
 
-将安装包中的 main.js、manifest.json、styles.css 放到笔记库 `.obsidian/plugins/remotely-save-local/`。先停用旧版 Remotely Save，再启用本地版：新插件没有自己的 `data.json` 时，会从本机旧插件复制设置并保存到自己的目录，原文件不会被覆盖。不要在不同设备间复制 `data.json`；每台设备都从自己的旧插件迁移或单独登录。
+**Recommended: BRAT (desktop and mobile, with automatic updates)**
 
-新旧插件共用 OneDrive 的授权回调和同步目标，不能同时启用。即使插件 ID 不同，上游旧版也可能同步其他插件的 `data.json`，因此迁移完成后请保持旧版停用。
+1. Settings → Community plugins → turn off Restricted mode → Browse, install **BRAT** (Obsidian42 - BRAT).
+2. BRAT settings → **Add Beta plugin** → enter `wzp100/remotely-save` → pick the latest version.
+3. If the original Remotely Save is installed, disable it first, then enable **Remotely Save 本地版**.
+4. Open the plugin settings. If the account card shows your account you are done; otherwise sign in to OneDrive. Use the **same remote folder name** on every device.
+5. Before the first sync, run a **preview** (预览) and check that nothing unexpected will be deleted, then sync (立即同步).
 
-## 实现与数据兼容
+**Manual**: download `main.js`, `manifest.json` and `styles.css` from [Releases](https://github.com/wzp100/remotely-save/releases/latest) into `<vault>/.obsidian/plugins/remotely-save-local/`.
 
-- 沿用上游 Apache-2.0 的本地、云端、加密驱动与配置编码。
-- 基础同步主循环独立实现，使用原数据库和 vault ID；从此前本地版迁移时继续使用原历史，从上游旧版迁移时隔离同步历史，避免错误推断删除。
-- 按两端历史处理新增、编辑、删除和冲突；成功传输后逐项保存历史；失败会等待正在执行的操作结束并停止新任务。
-- 完全排除上游 pro 目录及其账户、付费服务、智能合并模块和服务请求。原 pro 账户与停用服务字段在加载时清除；OneDrive 等基础字段不改动。
-- OneDrive 继续使用原 client ID、应用目录权限和授权回调。过期时间按秒换算毫秒，刷新响应未轮换 refresh token 时保留原值。
-- 增量列表按条目 ID 去重，以最后一次结果为准，排除删除标记。规范：[Microsoft Graph delta](https://learn.microsoft.com/en-us/graph/api/driveitem-delta)。
-- 两端同时修改时按冲突策略保留一方；被覆盖一方的内容另存为同目录下的 `原名 (冲突 本机|云端 日期 时间).扩展名`，下次同步上传到其他设备。两端内容实际相同时只记录历史，不传输也不生成副本。`.obsidian` 配置文件不在原处生成副本（否则会被 Obsidian 或插件加载），被覆盖的版本备份到本设备的 `.obsidian/plugins/remotely-save-local/conflict-backups/时间/本机|云端/` 下，不参与同步。同步结果按实际执行统计，内容相同的“冲突”不计入。
-- OneDrive 不支持空文件：未加密时空笔记会被跳过（或按设置报错），不再导致整轮同步失败；写入内容后自动上传。
-- 不递归删除文件夹，避免误删不在同步范围内的内容；已经清空的目录可能保留。
-- 启用“同步本地版程序文件”后，自身插件只同步 `main.js`、`manifest.json`、`styles.css`；自身 `data.json` 和其他私有文件始终排除，旧版 `remotely-save` 的整个目录也不参与同步。程序文件按版本成组同步，不用旧版本覆盖新版本，同版本冲突时停止覆盖；workspace.json、独立控制台和内部调试目录不参与同步。
-- 每台设备的本插件授权与设置独立保存。已经运行旧版的其他设备需先安装本地版，才能遵守这条规则；新设备需要单独完成 OneDrive 登录。
-- 仅测试了当前 macOS Obsidian 和 OneDrive；其他基础网盘没有进行新的端到端实测。
+**Updates**: BRAT checks on every Obsidian start; the plugin's "版本与更新" (version & updates) card can also check and update. With program-file sync on, one updated device delivers the new version to the others through OneDrive; reload the plugin or restart Obsidian to run it. Do not "Add" this plugin again in BRAT once installed—that can reinstall an older version.
 
-在手机上从旧版迁移时，保留原来的 `.obsidian/plugins/remotely-save/data.json`，让本地版在该设备上读取一次。各设备在“连接与授权”里填写相同的“OneDrive 远程目录”（留空时使用各自的笔记库名称），并使用各自的授权。“同步本地版程序文件”独立于“同步 Obsidian 配置”，默认启用，可经 OneDrive 同步这三个程序文件，无需同步其他设置。
+## Features
 
-旧版 Remotely Save 不会自动保护自己的 `data.json`；不要在旧版中直接开启配置同步来迁移，否则可能覆盖或上传设备授权。
+- **Status dashboard**: state, progress and current file, last result (uploads / downloads / deletions / conflicts), an expandable list of operations, errors, plus *sync now* and *preview*.
+- **Automatic sync**: on an interval, after startup, after edits, and **when Obsidian returns to the foreground** (after being away for over a minute, e.g. a phone resuming).
+- **Incremental listing**: only asks OneDrive for changes since the last sync, so a sync without changes takes seconds. Paths are rebuilt from the item-id chain; any inconsistency falls back to a full listing, and a full listing is forced every 24 hours.
+- **Conflicts never lose content**: when both sides changed, the configured winner (newer or larger) is kept and the overwritten note is saved as `name (冲突 本机|云端 date time).ext` and synced everywhere. Overwritten `.obsidian` config files are backed up on the device under `.obsidian/plugins/remotely-save-local/conflict-backups/` and cleaned after 30 days. "Conflicts" with identical content are only recorded.
+- **Deletion guard**: stops when more than a threshold (default 50%) of files would be overwritten or deleted. Files that differ only in timestamps do not count, so a new device with the same notes is not blocked.
+- **Folder deletions**: a folder deleted on one side is removed on the other only if it is **completely empty** right then, including hidden files the sync never lists.
+- **Files edited mid-sync** (e.g. a plugin saving its settings) are skipped until the next sync instead of aborting the whole run.
+- **Empty notes**: OneDrive cannot store empty files; they are listed in the result and uploaded once they have content.
+- **Version & updates**: running version, latest GitHub release and notes, the version in the cloud, update channels and runtime.
+- **Also**: respects `.gitignore`, ignore / allow-only path regexes, sync direction, concurrency, encryption (rclone or OpenSSL format), Microsoft account photo. Follows the Obsidian theme and switches to one column on narrow screens.
 
-如需用上游旧版在手机上首次接收本地版程序，请先确认手机和电脑使用同一个 OneDrive 账号及相同的远程目录，然后临时限定旧版的同步范围（以下针对默认的 `.obsidian` 目录）：
+## Privacy
 
-1. 暂时关闭旧版的“同步配置文件夹”，记下它原来是否开启。在旧版“忽略的文件或文件夹的正则表达式”末尾追加下面第一行；如果配置同步原来关闭，也追加第二行。保留原有规则。
+- Each device keeps its own OneDrive authorization and plugin settings (`data.json`); they are never synced.
+- Sync history, the listing snapshot and the avatar cache stay in the device's IndexedDB.
+- Without an encryption password, notes are stored in OneDrive as plain files (transferred over HTTPS).
 
-   ```text
-   ^(?!\.obsidian/(?:plugins/(?:remotely-save-local/(?:main\.js|styles\.css|manifest\.json)?)?)?$)
-   ^(?!)rs-local-config-was-off$
-   ```
+## Migrating from the original Remotely Save
 
-2. 如果旧版的“允许同步的文件或文件夹的正则表达式”不为空，保留原有内容，并追加：
+On first start without its own `data.json`, the plugin copies settings and authorization from the original plugin on the same device, leaving the original files untouched. Both plugins share the OneDrive callback, so keep the original disabled. The original plugin does not protect its own `data.json`; do not migrate by turning on its config-folder sync.
 
-   ```text
-   ^\.obsidian/(?:plugins/(?:remotely-save-local/(?:main\.js|styles\.css|manifest\.json)?)?)?$
-   ```
+## Development
 
-3. 在旧版临时开启配置同步，先预览并确认只下载本地版的三个程序文件及相关目录，再执行同步。若预览出现其他文件或未出现预期下载，停止并检查已有规则与同步方向。
-4. 停用旧版并启用本地版。本地版会在本机继承旧授权、移除上述临时规则；如果原先配置同步关闭，也会恢复关闭。之后程序文件通过独立开关同步。
-
-## .gitignore
-
-设置中的“遵循 .gitignore”默认启用，会读取本设备笔记库根目录和子目录的 `.gitignore`。根目录规则可以直接在设置页编辑，子目录规则可使用其他工具编辑。规则按 Git 语法匹配，支持目录、通配符、`!` 例外和嵌套规则。匹配的路径不上传、不下载，也不会因规则被删除；已存在的云端文件不会因此清除。规则文件本身不自动同步，每台设备需要自行配置。
-
-例如：
-
-```gitignore
-private/
-*.tmp
-!keep.tmp
+```sh
+npm ci --ignore-scripts
+npm test
+npm run build   # needs .env, see .env.example.txt
 ```
 
-## 构建与测试
+GitHub Actions tests and builds every push. To release: bump the version in `manifest.json`, `package.json` and `versions.json`, optionally add `release-notes/<version>.md`, then `git tag <version> && git push origin <version>`. The workflow builds the release from that tag and keeps only the latest release.
 
-Node.js + npm：`npm ci --ignore-scripts`、`npm test`、`npm run build`。`.env` 只包含公开 OAuth client ID/authority，按 `.env.example.txt` 配置。安装包不含 .env 或个人 data.json。
+## License
 
-`validation/` 保存测试、构建和 OneDrive 隔离测试结果。构建元数据 build-meta.json 可核对无 pro 输入。
-
-升级前备份在笔记库外 `../.remotely-backups/`，包含旧插件及原配置，请勿公开其中的账号数据。
-
-## 许可证
-
-本地 fork 源码按 Apache-2.0 发布。上游 `pro/` 的 PolyForm Strict 源码、二进制和运行时依赖均未包含在仓库中；第三方 npm 依赖继续使用各自的开源许可证（包括 MIT、Apache-2.0、ISC、BSD 等）。`build-meta.json` 是本机构建输出，包含绝对路径，因此不提交到仓库。
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The upstream `pro/` directory (PolyForm Strict) is not included; third-party dependencies keep their own open-source licenses.

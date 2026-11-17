@@ -1,7 +1,7 @@
 {
   "id": "remotely-save-local",
   "name": "Remotely Save 本地版",
-  "version": "0.7.9",
+  "version": "0.8.0",
   "minAppVersion": "1.5.0",
   "description": "集成同步控制台，直接连接 OneDrive，保留现有授权与同步配置。",
   "author": "wzp100 (fork of Remotely Save by fyears)",

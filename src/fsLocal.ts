@@ -196,7 +196,16 @@ export class FakeFsLocal extends FakeFs {
     return await this.vault.adapter.rename(key1, key2);
   }
 
+  async folderHasChildren(key: string): Promise<boolean | undefined> {
+    const path = key.endsWith("/") ? key.slice(0, -1) : key;
+    if (!(await this.vault.adapter.exists(path))) return false;
+    // adapter.list reads the real directory, so hidden files that Obsidian does not index still count.
+    const { files, folders } = await this.vault.adapter.list(path);
+    return files.length + folders.length > 0;
+  }
+
   async rm(key: string): Promise<void> {
+    if (key.endsWith("/")) key = key.slice(0, -1);
     if (this.deleteToWhere === "obsidian") {
       await this.vault.adapter.trashLocal(key);
     } else {

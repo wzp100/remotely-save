@@ -66,4 +66,11 @@ export abstract class FakeFs {
   abstract getUserDisplayName(): Promise<string>;
   abstract revokeAuth(): Promise<any>;
   abstract allowEmptyFile(): boolean;
+  /**
+   * Whether a folder (key ending in "/") currently contains anything, including files the sync never lists.
+   * undefined means "cannot tell", and callers must then leave the folder alone.
+   */
+  async folderHasChildren(_key: string): Promise<boolean | undefined> {
+    return undefined;
+  }
 }

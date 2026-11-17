@@ -21,6 +21,7 @@ import {
 } from "./baseTypes";
 import { VALID_REQURL } from "./baseTypesObs";
 import { FakeFs } from "./fsAll";
+import { applyDelta, entitiesFromSlim, FULL_LISTING_EVERY_MS, sameListing, slimOf, type DeltaCache, type DeltaStore, type SlimItem } from "./onedriveDelta";
 import { bufferToArrayBuffer } from "./misc";
 
 const SCOPES = ["User.Read", "Files.ReadWrite.AppFolder", "offline_access"];
@@ -563,6 +564,10 @@ export const getShrinkedSettings = (onedriveConfig: OnedriveConfig) => {
   return config;
 };
 
+let deltaStore: DeltaStore | undefined;
+/** Registered by the plugin with a device-local database; without it every walk is a full listing. */
+export const setOnedriveDeltaStore = (store?: DeltaStore) => { deltaStore = store; };
+
 // Microsoft Graph delta can repeat IDs; the last occurrence is authoritative.
 export function latestDriveItems(items: DriveItem[]): DriveItem[] {
   const latest=new Map<string,DriveItem>();
@@ -814,9 +819,31 @@ export class FakeFsOnedrive extends FakeFs {
    * Use delta api to list all files and folders
    * https://docs.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_delta?view=odsp-graph-online
    */
+  /** "full" or "incremental": how the last walk() listed the cloud (for diagnostics and tests). */
+  lastWalkMode?: "full" | "incremental";
+
   async walk(): Promise<Entity[]> {
     await this._init();
+    const scope = `${this.onedriveConfig.clientID}|${this.onedriveConfig.username}|${this.remoteBaseDir}`;
+    const cache = deltaStore ? await deltaStore.load(scope).catch(() => undefined) : undefined;
+    if (cache && cache.v === 1 && cache.scope === scope && Date.now() - cache.fullAt < FULL_LISTING_EVERY_MS) {
+      try {
+        const entities = await this._walkIncremental(cache);
+        if (entities) {
+          this.lastWalkMode = "incremental";
+          return entities;
+        }
+      } catch (error) {
+        // e.g. 410 Gone when the delta token expired; a full listing is always correct.
+        console.debug("remotely-save-local: incremental listing unavailable, listing everything", error);
+      }
+    }
+    this.lastWalkMode = "full";
+    return await this._walkFull(scope);
+  }
 
+  /** Lists every item under the sync folder (the original, path-based method). */
+  async _walkFull(scope: string): Promise<Entity[]> {
     const NEXT_LINK_KEY = "@odata.nextLink";
     const DELTA_LINK_KEY = "@odata.deltaLink";
 
@@ -824,25 +851,58 @@ export class FakeFsOnedrive extends FakeFs {
       `/drive/special/approot:/${this.remoteBaseDir}:/delta`
     );
     const driveItems = res.value as DriveItem[];
-    // console.debug(driveItems);
 
     while (NEXT_LINK_KEY in res) {
       res = await this._getJson(res[NEXT_LINK_KEY]);
       driveItems.push(...cloneDeep(res.value as DriveItem[]));
     }
 
-    // lastly we should have delta link?
-    if (DELTA_LINK_KEY in res) {
-      this.onedriveConfig.deltaLink = res[DELTA_LINK_KEY];
-      await this.saveUpdatedConfigFunc();
+    const latest = latestDriveItems(driveItems);
+    const withKeys = latest.map((x) => ({ x, entity: fromDriveItemToEntity(x, this.remoteBaseDir) }));
+    const unifiedContents = withKeys.map((w) => w.entity).filter((x) => x.key !== "/");
+
+    // Remember a snapshot for incremental listings, but only if rebuilding paths from the id chain
+    // reproduces this listing exactly; otherwise keep listing everything, as before.
+    if (deltaStore) {
+      try {
+        const rootId = withKeys.find((w) => w.entity.key === "/")?.x.id;
+        const slims = latest.map(slimOf);
+        const deltaLink = res[DELTA_LINK_KEY] as string | undefined;
+        const items = new Map<string, SlimItem>();
+        for (const it of slims) if (it) items.set(it.id, it);
+        const rebuilt = rootId && slims.every(Boolean) ? entitiesFromSlim(items, rootId) : undefined;
+        if (rootId && deltaLink && rebuilt && sameListing(rebuilt, unifiedContents)) {
+          await deltaStore.save({ v: 1, scope, rootId, deltaLink, fullAt: Date.now(), incrementalRuns: 0, items: [...items.values()] });
+        } else {
+          await deltaStore.clear();
+          console.warn("remotely-save-local: id-chain listing differs from the path listing; incremental sync disabled for now");
+        }
+      } catch (error) {
+        console.debug("remotely-save-local: could not store listing snapshot", error);
+      }
     }
-
-    // unify everything to Entity
-    const unifiedContents = latestDriveItems(driveItems)
-      .map((x) => fromDriveItemToEntity(x, this.remoteBaseDir))
-      .filter((x) => x.key !== "/");
-
     return unifiedContents;
+  }
+
+  /** Applies only the changes since the cached snapshot. undefined = fall back to a full listing. */
+  async _walkIncremental(cache: DeltaCache): Promise<Entity[] | undefined> {
+    let res = await this._getJson(cache.deltaLink);
+    const changes = [...(res.value as DriveItem[])];
+    while ("@odata.nextLink" in res) {
+      res = await this._getJson(res["@odata.nextLink"]);
+      changes.push(...(res.value as DriveItem[]));
+    }
+    const deltaLink = res["@odata.deltaLink"] as string | undefined;
+    if (!deltaLink) return undefined;
+    const items = applyDelta(cache, changes);
+    if (!items) return undefined;
+    const entities = entitiesFromSlim(items, cache.rootId);
+    if (!entities) return undefined;
+    // A sudden large drop is more likely a listing problem than a real mass deletion: confirm it.
+    const before = cache.items.length - 1;
+    if (before > 20 && entities.length < before * 0.7) return undefined;
+    await deltaStore!.save({ ...cache, deltaLink, incrementalRuns: cache.incrementalRuns + 1, items: [...items.values()] });
+    return entities;
   }
 
   async walkPartial(): Promise<Entity[]> {
@@ -1119,6 +1179,21 @@ export class FakeFsOnedrive extends FakeFs {
     await this._patchJson(remoteFileName1, {
       name: remoteFileName2,
     });
+  }
+
+  async folderHasChildren(key: string): Promise<boolean | undefined> {
+    if (key === "" || key === "/") return true;
+    await this._init();
+    const folder = getOnedrivePath(key.endsWith("/") ? key.slice(0, -1) : key, this.remoteBaseDir);
+    let res: { value?: unknown[] };
+    try {
+      res = await this._getJson(`${folder}:/children?$top=1&$select=id`);
+    } catch (error) {
+      // A folder that no longer exists has nothing in it.
+      if ((error as { status?: number }).status === 404 || /status 404\b/.test((error as Error).message ?? "")) return false;
+      throw error;
+    }
+    return Array.isArray(res?.value) ? res.value.length > 0 : undefined;
   }
 
   async rm(key: string): Promise<void> {

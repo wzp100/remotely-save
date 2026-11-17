@@ -192,3 +192,8 @@
   .rs-console .rs-about-label { margin-top: 8px; }
   .rs-console .rs-about-actions .rs-btn { flex: 1 1 40%; justify-content: center; }
 }
+.rs-console .rs-empty-notes { margin-top: 10px; }
+.rs-console .rs-empty-notes > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-empty-notes > summary .rs-chip-icon { color: var(--rs-yellow); }
+.rs-console .rs-empty-notes .rs-ops-list a.rs-op-path { color: var(--text-normal); text-decoration: none; }
+.rs-console .rs-empty-notes .rs-ops-list a.rs-op-path:hover { text-decoration: underline; }

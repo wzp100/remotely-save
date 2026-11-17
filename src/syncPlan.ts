@@ -1,12 +1,14 @@
 // Local fork: independently implemented basic sync planning (Apache-2.0).
 import type { Entity, RemotelySavePluginSettings } from "./baseTypes";
 import type { GitIgnoreFilter } from "./gitignore";
-export type Operation = "upload" | "download" | "delete_local" | "delete_remote" | "mkdir_local" | "mkdir_remote" | "equal" | "forget" | "skip";
+export type Operation = "upload" | "download" | "delete_local" | "delete_remote" | "mkdir_local" | "mkdir_remote" | "rmdir_local" | "rmdir_remote" | "equal" | "forget" | "skip";
 export interface BasicHistory extends Entity { basicLocal?: Entity; basicRemote?: Entity; }
 export interface Action {
   key: string; operation: Operation; local?: Entity; remote?: Entity; previous?: BasicHistory; conflict?: boolean;
-  /** Set during execution: both sides turned out byte-identical, so nothing was transferred. */
-  outcome?: "identical";
+  /** Set during execution: "identical" = both sides were byte-identical; "kept" = a folder was not empty, so it stayed. */
+  outcome?: "identical" | "kept" | "changed";
+  /** Why a planned upload was skipped. */
+  skipReason?: "empty";
   /** Set during execution: where the overwritten version of a conflict was kept. */
   conflictCopy?: string;
 }
@@ -73,8 +75,12 @@ export function planSync(localFiles: Entity[], remoteFiles: Entity[], history: B
     const l = local.get(key), r = remote.get(key), h = previous.get(key);
     const action: Action = { key, local: l, remote: r, previous: h, operation: "skip" };
     if (key.endsWith("/")) {
-      // Never recursively delete folders: they can contain excluded files.
-      action.operation = l && !r && !pullOnly ? "mkdir_remote" : r && !l && !pushOnly ? "mkdir_local" : "skip";
+      // A folder seen on both sides earlier and now gone from one side was deleted there. It is removed
+      // only if it is empty at that moment (checked during execution), so excluded files are never lost.
+      if (l && r) action.operation = "equal";
+      else if (l) action.operation = h && allowPullDelete ? "rmdir_local" : !pullOnly ? "mkdir_remote" : "skip";
+      else if (r) action.operation = h && allowPushDelete ? "rmdir_remote" : !pushOnly ? "mkdir_local" : "skip";
+      else action.operation = h ? "forget" : "skip";
     } else if (!l && !r) action.operation = "forget";
     else if ((settings.skipSizeLargerThan ?? -1) > 0 && Math.max(l?.size ?? l?.sizeRaw ?? 0, r?.sizeEnc ?? r?.sizeRaw ?? 0) > settings.skipSizeLargerThan!) action.operation = "skip";
     else if (l && r) {

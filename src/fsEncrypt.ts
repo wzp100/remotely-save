@@ -399,6 +399,12 @@ export class FakeFsEncrypt extends FakeFs {
     return await this.innerFs.rm(keyEnc);
   }
 
+  async folderHasChildren(key: string): Promise<boolean | undefined> {
+    const keyEnc = this.hasCacheMap ? this.cacheMapOrigToEnc[key] : undefined;
+    if (keyEnc === undefined) return undefined;
+    return await this.innerFs.folderHasChildren(keyEnc);
+  }
+
   async checkConnect(callbackFunc?: any): Promise<boolean> {
     return await this.innerFs.checkConnect(callbackFunc);
   }

@@ -37,6 +37,7 @@ jobs:
         env:
           ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
           ONEDRIVE_AUTHORITY: ${{ secrets.ONEDRIVE_AUTHORITY }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: |
           if [ -z "$ONEDRIVE_CLIENT_ID" ]; then echo "::error::ONEDRIVE_CLIENT_ID secret is missing"; exit 1; fi
           npm run build

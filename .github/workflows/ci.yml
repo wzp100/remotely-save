@@ -27,4 +27,5 @@ jobs:
         env:
           ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
           ONEDRIVE_AUTHORITY: ${{ secrets.ONEDRIVE_AUTHORITY }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
         run: npm run build

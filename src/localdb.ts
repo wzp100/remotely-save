@@ -522,6 +522,16 @@ export const getLastSuccessSyncTimeByVault = async (
   )) as number | null | undefined;
 };
 
+/** Cached account avatar, kept on this device only (never in data.json, never synced). */
+export interface CachedAvatar { account: string; dataUrl?: string; fetchedAt: number; }
+
+export const getCachedAvatarByVault = async (db: InternalDBs, vaultRandomID: string) =>
+  (await db.simpleKVForMiscTbl.getItem(`${vaultRandomID}-onedriveAvatar`)) as CachedAvatar | null;
+
+export const upsertCachedAvatarByVault = async (db: InternalDBs, vaultRandomID: string, value: CachedAvatar) => {
+  await db.simpleKVForMiscTbl.setItem(`${vaultRandomID}-onedriveAvatar`, value);
+};
+
 export const upsertLastFailedSyncTimeByVault = async (
   db: InternalDBs,
   vaultRandomID: string,

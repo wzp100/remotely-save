@@ -1,5 +1,5 @@
 // Local fork: one integrated settings tab — status dashboard first, then grouped settings.
-import { App, Modal, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, arrayBufferToBase64, setIcon } from "obsidian";
 import type RemotelySavePlugin from "./main";
 import type {
   RemotelySavePluginSettings,
@@ -12,8 +12,10 @@ import { saveOneDriveAuthSession } from "./onedriveAuthSession";
 import { saveRootGitIgnore } from "./gitignore";
 import { changeOneDriveFolder } from "./onedriveFolder";
 import {
+  getCachedAvatarByVault,
   getLastFailedSyncTimeByVault,
   getLastSuccessSyncTimeByVault,
+  upsertCachedAvatarByVault,
 } from "./localdb";
 
 const SERVICES: Record<string, string> = {
@@ -317,8 +319,13 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
 
     const account = body.createDiv({ cls: "rs-account" });
     const avatar = account.createDiv({ cls: "rs-avatar" });
-    if (cloud.username) avatar.setText(cloud.username.trim().charAt(0).toUpperCase());
-    else setIcon(avatar, "user");
+    this.avatarFallback(avatar, cloud.username);
+    if (s.serviceType === "onedrive" && authorized) {
+      avatar.addClass("is-clickable");
+      avatar.title = "点击刷新微软账号头像";
+      avatar.addEventListener("click", () => void this.loadAvatar(avatar, cloud.username ?? "", true));
+      void this.loadAvatar(avatar, cloud.username ?? "");
+    }
     const info = account.createDiv({ cls: "rs-account-info" });
     info.createDiv({ cls: "rs-account-name", text: cloud.username || (authorized ? "已授权账号" : "尚未登录") });
     const meta = info.createDiv({ cls: "rs-account-meta" });
@@ -474,6 +481,45 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
   }
 
   // ───────────────────────── helpers ─────────────────────────
+
+  private avatarFallback(el: HTMLElement, name?: string) {
+    el.empty();
+    el.removeClass("has-photo");
+    if (name?.trim()) el.setText(name.trim().charAt(0).toUpperCase());
+    else setIcon(el, "user");
+  }
+
+  /** Shows the cached Microsoft avatar at once, then refreshes it weekly (or on click). Never blocks the page. */
+  private async loadAvatar(el: HTMLElement, account: string, force = false) {
+    const p = this.plugin;
+    const show = (url: string) => {
+      el.empty();
+      el.addClass("has-photo");
+      el.createEl("img", { attr: { src: url, alt: account || "账号头像" } });
+    };
+    try {
+      const cached = await getCachedAvatarByVault(p.db, p.vaultRandomID);
+      const sameAccount = cached?.account === account;
+      if (sameAccount && cached?.dataUrl) show(cached.dataUrl);
+      const fresh = sameAccount && Date.now() - (cached?.fetchedAt ?? 0) < 7 * 86400000;
+      // A sync may be refreshing the token at the same time; keep the cached picture until it finishes.
+      if ((fresh && !force) || p.isSyncing) return;
+      const client = getClient(p.settings, this.app.vault.getName(), () => p.saveSettings()) as unknown as {
+        getProfilePhoto?: () => Promise<{ data: ArrayBuffer; type: string } | undefined>;
+      };
+      if (!client.getProfilePhoto) return;
+      const photo = await client.getProfilePhoto();
+      const dataUrl = photo ? `data:${photo.type};base64,${arrayBufferToBase64(photo.data)}` : undefined;
+      await upsertCachedAvatarByVault(p.db, p.vaultRandomID, { account, dataUrl, fetchedAt: Date.now() });
+      if (!el.isConnected) return;
+      if (dataUrl) show(dataUrl);
+      else this.avatarFallback(el, account);
+      if (force) new Notice(dataUrl ? "头像已更新。" : "这个微软账号没有设置头像。");
+    } catch (error) {
+      console.debug("remotely-save-local: avatar", error);
+      if (force) new Notice(`无法读取头像：${(error as Error).message}`);
+    }
+  }
 
   private iconText(el: HTMLElement, icon: string, text: string) {
     setIcon(el.createSpan({ cls: "rs-btn-icon" }), icon);

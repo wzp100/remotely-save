@@ -1153,6 +1153,25 @@ export class FakeFsOnedrive extends FakeFs {
   }
 
   /**
+   * Profile photo of the signed-in Microsoft account (needs User.Read, already granted).
+   * Returns undefined when the account has no photo. Uses requestUrl so it works on mobile without CORS.
+   */
+  async getProfilePhoto(size = 96): Promise<{ data: ArrayBuffer; type: string } | undefined> {
+    await this._init();
+    for (const path of [`/me/photos/${size}x${size}/$value`, "/me/photo/$value"]) {
+      const res = await requestUrl({
+        url: `https://graph.microsoft.com/v1.0${path}`,
+        headers: { Authorization: `Bearer ${await this.authGetter.getAccessToken()}` },
+        throw: false,
+      });
+      if (res.status === 404) continue;
+      if (res.status < 200 || res.status >= 300) throw new Error(`读取头像失败：HTTP ${res.status}`);
+      return { data: res.arrayBuffer, type: res.headers["content-type"] ?? "image/jpeg" };
+    }
+    return undefined;
+  }
+
+  /**
    *
    * https://docs.microsoft.com/en-us/azure/active-directory/develop/v2-protocols-oidc#send-a-sign-out-request
    * https://docs.microsoft.com/en-us/graph/api/user-revokesigninsessions

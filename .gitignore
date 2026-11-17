@@ -19,3 +19,8 @@ logs.txt
 
 # hidden files
 .*
+!.github/
+!.gitignore
+!.gitattributes
+!.editorconfig
+!.env.example.txt

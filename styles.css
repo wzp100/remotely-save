@@ -1,39 +1,156 @@
-/* Local fork: integrated console, inherits Obsidian's active theme. */
-/* Obsidian centers settings with container padding, so limit the cards instead. */
-.rs-console { padding-bottom: 32px; }
-.rs-console > .rs-hero, .rs-console > .rs-section { box-sizing: border-box; max-width: 980px; margin-inline: auto; }
-.rs-console .rs-hero { padding: 24px; margin-bottom: 20px; border: 1px solid var(--background-modifier-border); border-radius: 12px; background: var(--background-secondary); }
-.rs-console .rs-hero h1 { margin-top: 0; font-size: 26px; }
-.rs-console .rs-hero p { color: var(--text-muted); }
-.rs-console .rs-actions .setting-item { border: 0; padding-bottom: 0; }
-.rs-console .rs-actions .setting-item-info { display: none; }
-.rs-console .rs-actions .setting-item-control { flex-wrap: wrap; justify-content: flex-start; }
-.rs-console .rs-section { padding: 18px 20px; margin-bottom: 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); }
-.rs-console .rs-section h2 { margin-top: 0; font-size: 18px; }
-.rs-console .rs-key-value { display: flex; gap: 20px; justify-content: space-between; padding: 8px 0; }
-.rs-console .rs-label { color: var(--text-muted); }
-.rs-console .rs-value { word-break: break-word; text-align: right; }
-.rs-console .rs-error { color: var(--text-error); }
-.rs-console .rs-live-state { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
-.rs-console .rs-live-state.is-syncing { border-color: var(--interactive-accent); }
-.rs-console .rs-live-state.is-preview { border-color: var(--color-yellow); }
-.rs-console .rs-live-state.is-failed { border-color: var(--text-error); }
-.rs-console .rs-live-heading { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.rs-console .rs-live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); flex: 0 0 auto; }
-.rs-console .is-syncing .rs-live-dot { background: var(--interactive-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-accent) 18%, transparent); }
-.rs-console .is-preview .rs-live-dot { background: var(--color-yellow); }
-.rs-console .is-failed .rs-live-dot { background: var(--text-error); }
-.rs-console .rs-live-title { font-weight: 700; font-size: 15px; }
-.rs-console .rs-live-meta { margin-left: auto; color: var(--text-muted); font-size: 12px; }
-.rs-console .rs-progress { height: 7px; margin: 14px 0 9px; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
-.rs-console .rs-progress-fill { height: 100%; border-radius: inherit; background: var(--interactive-accent); transition: width .25s ease; }
-.rs-console .rs-live-detail, .rs-console .rs-live-summary { margin-top: 10px; color: var(--text-muted); }
-.rs-console .rs-live-path { margin-top: 7px; padding: 8px 10px; border-radius: 7px; background: var(--background-primary); font-family: var(--font-monospace); font-size: 12px; word-break: break-all; }
-.rs-console .rs-live-times { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; color: var(--text-faint); font-size: 12px; }
-.rs-console .rs-live-actions { margin-top: 10px; }
-.rs-console pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-.rs-console textarea { min-height: 84px; }
-.rs-console summary { cursor: pointer; font-weight: 600; }
-.rs-console .onedrive-auth-button-hide,.rs-console .onedrive-revoke-auth-button-hide { display:none; }
+/* Local fork: integrated settings console. Uses Obsidian theme variables only, so light/dark/custom themes all apply. */
+.rs-console {
+  --rs-radius: var(--radius-l, 12px);
+  --rs-gap: 14px;
+  --rs-accent: var(--interactive-accent);
+  --rs-green: var(--color-green, #3aa66b);
+  --rs-red: var(--color-red, #e5484d);
+  --rs-yellow: var(--color-yellow, #d9a400);
+  padding-bottom: 40px;
+  container-type: inline-size;
+}
+.rs-console > * { box-sizing: border-box; max-width: 860px; margin-inline: auto; }
+.rs-console .tone-accent { --rs-tone: var(--rs-accent); }
+.rs-console .tone-green { --rs-tone: var(--rs-green); }
+.rs-console .tone-red { --rs-tone: var(--rs-red); }
+.rs-console .tone-yellow { --rs-tone: var(--rs-yellow); }
+.rs-console .tone-muted { --rs-tone: var(--text-muted); }
+.rs-console .rs-muted { color: var(--text-muted); font-size: var(--font-ui-small); }
+
+/* Buttons with icons */
+.rs-console .rs-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rs-console .rs-btn-icon { display: inline-flex; }
+.rs-console .rs-btn-icon svg { width: 15px; height: 15px; }
+
+/* ── Dashboard ── */
+.rs-console .rs-dashboard {
+  --rs-state: var(--text-muted);
+  margin-bottom: 22px; padding: 18px 20px;
+  border-radius: var(--rs-radius);
+  border: 1px solid var(--background-modifier-border);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--rs-state) 9%, var(--background-secondary)), var(--background-secondary) 70%);
+}
+.rs-console .rs-dashboard.is-ok { --rs-state: var(--rs-green); }
+.rs-console .rs-dashboard.is-syncing { --rs-state: var(--rs-accent); }
+.rs-console .rs-dashboard.is-preview { --rs-state: var(--rs-yellow); }
+.rs-console .rs-dashboard.is-failed { --rs-state: var(--rs-red); border-color: color-mix(in srgb, var(--rs-red) 45%, var(--background-modifier-border)); }
+.rs-console .rs-dash-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.rs-console .rs-dash-status { display: flex; align-items: center; gap: 14px; flex: 1 1 260px; min-width: 0; }
+.rs-console .rs-dash-icon {
+  flex: 0 0 auto; width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--rs-state);
+  background: color-mix(in srgb, var(--rs-state) 16%, transparent);
+}
+.rs-console .rs-dash-icon svg { width: 22px; height: 22px; }
+.rs-console .is-syncing .rs-dash-icon svg, .rs-console .is-preview .rs-dash-icon svg { animation: rs-spin 1.2s linear infinite; }
+.rs-console .is-preview .rs-dash-icon svg { animation: rs-pulse 1.4s ease-in-out infinite; }
+.rs-console .rs-dash-text { min-width: 0; }
+.rs-console .rs-dash-title { font-size: 1.25em; font-weight: 700; line-height: 1.3; }
+.rs-console .rs-dash-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.rs-console .rs-dash-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rs-console .rs-dash-detail:not(:empty) { margin-top: 14px; }
+
+.rs-console .rs-progress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
+.rs-console .rs-progress-fill { height: 100%; width: 0; border-radius: inherit; background: var(--rs-state); transition: width .3s ease; }
+.rs-console .rs-progress.is-indeterminate .rs-progress-fill { width: 35%; animation: rs-slide 1.3s ease-in-out infinite; }
+.rs-console .rs-progress-line { display: flex; gap: 12px; margin-top: 8px; font-size: var(--font-ui-small); color: var(--text-muted); min-width: 0; }
+.rs-console .rs-progress-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.rs-console .rs-progress-path { font-family: var(--font-monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rs-console .rs-dash-detail > .rs-muted { margin-top: 8px; }
+
+.rs-console .rs-error-box {
+  display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px; padding: 10px 12px;
+  border-radius: var(--radius-m, 8px); color: var(--text-normal); overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--rs-red) 10%, var(--background-primary));
+}
+.rs-console .rs-error-icon { color: var(--rs-red); display: inline-flex; padding-top: 2px; }
+.rs-console .rs-error-icon svg { width: 16px; height: 16px; }
+
+.rs-console .rs-stats { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.rs-console .rs-stats-label { color: var(--text-muted); font-size: var(--font-ui-small); margin-right: 2px; }
+.rs-console .rs-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px;
+  font-size: var(--font-ui-small); font-variant-numeric: tabular-nums; color: var(--rs-tone);
+  background: color-mix(in srgb, var(--rs-tone) 13%, transparent);
+}
+.rs-console .rs-chip-icon { display: inline-flex; }
+.rs-console .rs-chip-icon svg { width: 13px; height: 13px; }
+
+.rs-console .rs-ops { margin-top: 12px; }
+.rs-console .rs-ops > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-ops-list {
+  margin-top: 8px; max-height: 280px; overflow: auto; padding: 4px;
+  border-radius: var(--radius-m, 8px); background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+}
+.rs-console .rs-op { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; font-size: var(--font-ui-small); min-width: 0; }
+.rs-console .rs-op:hover { background: var(--background-modifier-hover); }
+.rs-console .rs-op-icon { display: inline-flex; color: var(--rs-tone); }
+.rs-console .rs-op-icon svg { width: 14px; height: 14px; }
+.rs-console .rs-op-label { flex: 0 0 auto; color: var(--rs-tone); min-width: 4.5em; }
+.rs-console .rs-op-path { font-family: var(--font-monospace); color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rs-console .rs-ops-hint { margin-top: 8px; }
+
+/* ── Cards ── */
+.rs-console .rs-card {
+  margin-bottom: var(--rs-gap); border-radius: var(--rs-radius);
+  border: 1px solid var(--background-modifier-border); background: var(--background-primary);
+}
+.rs-console .rs-card-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px 4px; }
+.rs-console .rs-card-icon {
+  flex: 0 0 auto; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center;
+  color: var(--rs-accent); background: color-mix(in srgb, var(--rs-accent) 12%, transparent);
+}
+.rs-console .rs-card-icon svg { width: 16px; height: 16px; }
+.rs-console .rs-card-title { font-weight: 650; font-size: 1.05em; }
+.rs-console .rs-card-desc { color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-card-body { padding: 4px 18px 8px; }
+.rs-console .rs-card-body .setting-item-description { padding-top: 2px; }
+
+.rs-console details.rs-advanced > summary { list-style: none; cursor: pointer; padding-bottom: 14px; }
+.rs-console details.rs-advanced > summary::-webkit-details-marker { display: none; }
+.rs-console details.rs-advanced > summary::after {
+  content: ""; margin-left: auto; width: 8px; height: 8px; flex: 0 0 auto;
+  border-right: 2px solid var(--text-muted); border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg); transition: transform .15s ease;
+}
+.rs-console details.rs-advanced[open] > summary { padding-bottom: 4px; }
+.rs-console details.rs-advanced[open] > summary::after { transform: rotate(45deg); }
+.rs-console .rs-textarea-setting textarea { min-width: 220px; font-family: var(--font-monospace); font-size: var(--font-ui-small); }
+.rs-console .rs-textarea-setting .setting-item-control { align-items: flex-end; }
+
+/* Account */
+.rs-console .rs-account { display: flex; align-items: center; gap: 12px; padding: 10px 0 12px; flex-wrap: wrap; }
+.rs-console .rs-avatar {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  font-weight: 700; color: var(--text-on-accent); background: var(--rs-accent);
+}
+.rs-console .rs-avatar svg { width: 20px; height: 20px; }
+.rs-console .rs-account-info { flex: 1 1 180px; min-width: 0; }
+.rs-console .rs-account-name { font-weight: 600; overflow-wrap: anywhere; }
+.rs-console .rs-account-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 3px; color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-badge { padding: 0 7px; border-radius: 999px; color: var(--rs-tone); background: color-mix(in srgb, var(--rs-tone) 13%, transparent); }
+.rs-console .rs-account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .rs-gitignore-modal .rs-gitignore-editor { width: 100%; min-height: 240px; box-sizing: border-box; font-family: var(--font-monospace); resize: vertical; }
-@media(max-width:700px) { .rs-console .rs-section,.rs-console .rs-hero { padding:16px; } .rs-console .setting-item { flex-wrap:wrap; gap:12px; } .rs-console .setting-item-control { margin-left:0; max-width:100%; } .rs-console .rs-live-meta { width:100%; margin-left:18px; } }
+
+@keyframes rs-spin { to { transform: rotate(360deg); } }
+@keyframes rs-pulse { 50% { opacity: .45; } }
+@keyframes rs-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) {
+  .rs-console .rs-dash-icon svg, .rs-console .rs-progress-fill { animation: none !important; }
+}
+
+/* Phones and narrow panes */
+@container (max-width: 600px) {
+  .rs-console .rs-dashboard { padding: 16px; }
+  .rs-console .rs-dash-actions { width: 100%; }
+  .rs-console .rs-dash-actions .rs-btn { flex: 1 1 0; justify-content: center; }
+  .rs-console .rs-card-head { padding: 12px 14px 2px; }
+  .rs-console .rs-card-body { padding: 2px 14px 6px; }
+  .rs-console .rs-account-actions { width: 100%; }
+  .rs-console .rs-account-actions .rs-btn { flex: 1 1 0; justify-content: center; }
+  .rs-console .rs-textarea-setting { flex-wrap: wrap; gap: 10px; }
+  .rs-console .rs-textarea-setting .setting-item-control { width: 100%; }
+  .rs-console .rs-textarea-setting textarea { flex: 1; min-width: 0; }
+}

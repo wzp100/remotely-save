@@ -90,6 +90,10 @@
 .rs-console .rs-op-label { flex: 0 0 auto; color: var(--rs-tone); min-width: 4.5em; }
 .rs-console .rs-op-path { font-family: var(--font-monospace); color: var(--text-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .rs-console .rs-ops-hint { margin-top: 8px; }
+.rs-console .rs-op-note {
+  margin: -2px 0 4px calc(8px + 14px + 8px); padding: 0 8px 2px; font-size: var(--font-ui-smaller, 12px);
+  color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ── Cards ── */
 .rs-console .rs-card {

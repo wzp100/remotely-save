@@ -7,7 +7,7 @@ import { clearPrevSyncRecordByVaultAndProfile, getAllPrevSyncRecordsByVaultAndPr
 import { enforceProtection, isSelfPluginFile, modified, planSync, sameMetadata, selfPluginPrefix, type Action, type BasicHistory } from "./syncPlan";
 import { prepareSelfPluginPlan } from "./selfPluginSync";
 export type SyncPlanType = Record<string, MixedEntity & { operation?: string }>;
-export interface SyncSummary { dry: boolean; upload: number; download: number; deleteLocal: number; deleteRemote: number; folders: number; skipped: number; conflicts: number; actions: { path: string; operation: string }[]; }
+export interface SyncSummary { dry: boolean; upload: number; download: number; deleteLocal: number; deleteRemote: number; folders: number; skipped: number; conflicts: number; actions: { path: string; operation: string; conflict?: boolean; copy?: string }[]; }
 
 export function isMissingError(error: unknown): boolean {
   const e=error as {status?:number;statusCode?:number;code?:string;message?:string};
@@ -29,15 +29,39 @@ function sameBytes(a: ArrayBuffer, b: ArrayBuffer): boolean {
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
+const stampOf = (time: number) => {
+  const d = new Date(time);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+};
+const sideName = (side: "local" | "remote") => (side === "local" ? "本机" : "云端");
+
 /** Builds "dir/name (冲突 云端 2026-11-17 171500).ext"; avoids characters that Windows, Android and iOS reject. */
 export function conflictCopyKey(key: string, side: "local" | "remote", time: number, attempt = 0): string {
   const slash = key.lastIndexOf("/");
   const dir = key.slice(0, slash + 1), name = key.slice(slash + 1);
   const dot = name.lastIndexOf(".");
   const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
-  const d = new Date(time);
-  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `${dir}${stem} (冲突 ${side === "local" ? "本机" : "云端"} ${stamp}${attempt ? ` ${attempt + 1}` : ""})${ext}`;
+  return `${dir}${stem} (冲突 ${sideName(side)} ${stampOf(time)}${attempt ? ` ${attempt + 1}` : ""})${ext}`;
+}
+
+/**
+ * Config files cannot get a sibling copy (Obsidian and plugins would load it), so their losing version
+ * goes to this plugin's own folder, which is never synced and never loaded as configuration.
+ */
+export function configBackupKey(key: string, side: "local" | "remote", time: number, configDir: string): string {
+  return `${selfPluginPrefix(configDir)}conflict-backups/${stampOf(time)}/${sideName(side)}/${key.slice(configDir.length + 1)}`;
+}
+
+/** Counts what actually happened (after execution) or what is planned (for a preview). */
+export function summarize(plan: Action[], dry: boolean): SyncSummary {
+  const live = plan.filter(a => a.outcome !== "identical");
+  const count = (op: string) => live.filter(a => a.operation === op).length;
+  return {
+    dry, upload: count("upload"), download: count("download"), deleteLocal: count("delete_local"), deleteRemote: count("delete_remote"),
+    folders: count("mkdir_local") + count("mkdir_remote"), skipped: count("skip"), conflicts: live.filter(a => a.conflict).length,
+    actions: live.filter(a => !["equal", "skip", "forget"].includes(a.operation))
+      .map(a => ({ path: a.key, operation: a.operation, ...(a.conflict ? { conflict: true } : {}), ...(a.conflictCopy ? { copy: a.conflictCopy } : {}) })),
+  };
 }
 
 export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs, settings: RemotelySavePluginSettings, save: (history: BasicHistory) => Promise<void>, forget: (key: string) => Promise<void>, progress: (action: Action, done: number) => Promise<void>, configDir = ".obsidian", allowEmpty = remote.allowEmptyFile()) {
@@ -72,22 +96,30 @@ export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs,
     await save({ ...r, key, size: l.size ?? l.sizeRaw, mtimeCli: l.mtimeCli, prevSyncTime: Date.now(), basicLocal: l, basicRemote: r });
   };
   // Parents before children; removals affect files only, never entire trees.
-  // Before one side of a conflict is overwritten, keep the losing content as a separate local file.
-  // The next sync uploads it, so every device receives the copy. Config files are excluded to avoid
-  // spawning stray JSON/CSS files that Obsidian or plugins would pick up.
+  // Before one side of a conflict is overwritten, keep the losing content. Notes get a sibling copy that
+  // the next sync uploads to every device; config files get a device-local backup in this plugin's folder.
+  const backupTime = Date.now();
   const preserveConflict = async (a: Action): Promise<boolean> => {
     const [lc, rc] = await Promise.all([local.readFile(a.key), remote.readFile(a.key)]);
-    if (sameBytes(lc, rc)) { await history(a.key); return false; }
-    if (a.key === configDir + "/" || a.key.startsWith(configDir + "/")) return true;
+    if (sameBytes(lc, rc)) { await history(a.key); a.outcome = "identical"; return false; }
     const loser: "local" | "remote" = a.operation === "upload" ? "remote" : "local";
     const entity = loser === "local" ? a.local! : a.remote!;
+    const content = loser === "local" ? lc : rc;
+    if (a.key.startsWith(configDir + "/")) {
+      const key = configBackupKey(a.key, loser, backupTime, configDir);
+      await ensureParents(local, key, localDirs);
+      await local.writeFile(key, content, modified(entity), entity.ctimeCli ?? modified(entity));
+      a.conflictCopy = key;
+      return true;
+    }
     const now = Date.now();
     for (let attempt = 0; ; attempt++) {
       const key = conflictCopyKey(a.key, loser, now, attempt);
       try { await local.stat(key); }
       catch (error) {
         if (!isMissingError(error)) throw error;
-        await local.writeFile(key, loser === "local" ? lc : rc, modified(entity), entity.ctimeCli ?? modified(entity));
+        await local.writeFile(key, content, modified(entity), entity.ctimeCli ?? modified(entity));
+        a.conflictCopy = key;
         return true;
       }
       if (attempt > 20) throw new Error(`无法为冲突文件生成副本名称：${a.key}`);
@@ -176,11 +208,11 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     const report: SyncPlanType = {};
     for (const a of plan) report[a.key] = { key:a.key, local:a.local, remote:a.remote, prevSync:a.previous, operation:a.operation, change:!["equal","skip","forget"].includes(a.operation) };
     await insertSyncPlanRecordByVault(db,report,vault,settings.serviceType);
-    const count = (op: string) => plan.filter(a => a.operation === op).length;
-    const summary: SyncSummary = { dry:source === "dry", upload:count("upload"), download:count("download"), deleteLocal:count("delete_local"), deleteRemote:count("delete_remote"), folders:count("mkdir_local")+count("mkdir_remote"), skipped:count("skip"), conflicts:plan.filter(a=>a.conflict).length, actions:plan.filter(a=>!["equal","skip","forget"].includes(a.operation)).map(a=>({path:a.key,operation:a.operation})) };
+    let summary = summarize(plan, source === "dry");
     if (source !== "dry") {
       enforceProtection(plan,settings.protectModifyPercentage ?? 50);
       await executePlan(plan,local,remote,settings,record=>upsertPrevSyncRecordByVaultAndProfile(db,vault,profile,record),key=>clearPrevSyncRecordByVaultAndProfile(db,vault,profile,key),async(a,n)=>progress(source,n,plan.length,a.key,a.operation),configDir,allowEmpty);
+      summary = summarize(plan, false);
     }
     ok=true; await notify(source,8); return summary;
   } catch (error) {

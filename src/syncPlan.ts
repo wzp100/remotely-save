@@ -3,7 +3,13 @@ import type { Entity, RemotelySavePluginSettings } from "./baseTypes";
 import type { GitIgnoreFilter } from "./gitignore";
 export type Operation = "upload" | "download" | "delete_local" | "delete_remote" | "mkdir_local" | "mkdir_remote" | "equal" | "forget" | "skip";
 export interface BasicHistory extends Entity { basicLocal?: Entity; basicRemote?: Entity; }
-export interface Action { key: string; operation: Operation; local?: Entity; remote?: Entity; previous?: BasicHistory; conflict?: boolean; }
+export interface Action {
+  key: string; operation: Operation; local?: Entity; remote?: Entity; previous?: BasicHistory; conflict?: boolean;
+  /** Set during execution: both sides turned out byte-identical, so nothing was transferred. */
+  outcome?: "identical";
+  /** Set during execution: where the overwritten version of a conflict was kept. */
+  conflictCopy?: string;
+}
 export const modified = (entity?: Entity) => entity?.mtimeCli ?? entity?.mtimeSvr ?? 0;
 const size = (entity?: Entity) => entity?.size ?? entity?.sizeRaw;
 export function sameMetadata(a: Entity, b: Entity, remote = false): boolean {

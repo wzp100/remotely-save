@@ -281,10 +281,21 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       const ul = list.createDiv({ cls: "rs-ops-list" });
       for (const a of summary.actions.slice(0, 300)) {
         const op = OPERATIONS[a.operation] ?? { label: a.operation, icon: "dot", tone: "muted" };
-        const row = ul.createDiv({ cls: `rs-op tone-${op.tone}` });
-        setIcon(row.createSpan({ cls: "rs-op-icon" }), op.icon);
-        row.createSpan({ cls: "rs-op-label", text: op.label });
-        row.createSpan({ cls: "rs-op-path", text: a.path });
+        const row = ul.createDiv({ cls: `rs-op tone-${a.conflict ? "yellow" : op.tone}` });
+        setIcon(row.createSpan({ cls: "rs-op-icon" }), a.conflict ? "git-merge" : op.icon);
+        row.createSpan({ cls: "rs-op-label", text: a.conflict ? `冲突·${op.label}` : op.label });
+        const pathEl = row.createSpan({ cls: "rs-op-path", text: a.path });
+        pathEl.title = a.path;
+        if (a.conflict) {
+          const keep = a.operation === "download" ? "本机" : "云端";
+          const note = a.copy
+            ? `原${keep}版本已另存为：${a.copy}`
+            : summary.dry
+              ? `两端都改过；同步时若内容不同，${keep}版本会先另存再被替换`
+              : `原${keep}版本未保存`;
+          const sub = ul.createDiv({ cls: "rs-op-note", text: note });
+          sub.title = note;
+        }
       }
       if (summary.actions.length > 300) ul.createDiv({ cls: "rs-muted", text: `另有 ${summary.actions.length - 300} 项未显示` });
       if (summary.dry && summary.actions.length) {
@@ -418,7 +429,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
       });
     new Setting(body)
       .setName("两端都修改时")
-      .setDesc("被替换的版本会另存为「原名 (冲突 本机/云端 时间)」，不会丢失。")
+      .setDesc("被替换的笔记另存为「原名 (冲突 本机/云端 时间)」；.obsidian 配置文件备份在本插件目录的 conflict-backups 里，只留在本设备。")
       .addDropdown((d) =>
         d.addOption("keep_newer", "保留较新的")
           .addOption("keep_larger", "保留较大的")

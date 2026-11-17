@@ -1,5 +1,5 @@
 // Local fork: one integrated settings tab — status dashboard first, then grouped settings.
-import { App, Modal, Notice, PluginSettingTab, Setting, arrayBufferToBase64, setIcon } from "obsidian";
+import { App, MarkdownRenderer, Modal, Notice, Platform, PluginSettingTab, Setting, apiVersion, arrayBufferToBase64, setIcon } from "obsidian";
 import type RemotelySavePlugin from "./main";
 import type {
   RemotelySavePluginSettings,
@@ -17,6 +17,10 @@ import {
   getLastSuccessSyncTimeByVault,
   upsertCachedAvatarByVault,
 } from "./localdb";
+import {
+  BRAT_ID, BRAT_UPDATE_COMMAND, REPO, REPO_URL, UPDATE_CHECK_TTL,
+  cachedUpdateCheck, compareVersions, fetchLatestRelease, storeUpdateCheck,
+} from "./updateInfo";
 
 const SERVICES: Record<string, string> = {
   onedrive: "OneDrive",
@@ -78,6 +82,10 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
   private syncButtons: Disableable[] = [];
   private storedSuccess?: number;
   private storedFailure?: number;
+  private updateBanner?: HTMLElement;
+  private aboutBody?: HTMLElement;
+  private diskVersion?: string;
+  private checking = false;
 
   constructor(app: App, readonly plugin: RemotelySavePlugin) {
     super(app, plugin);
@@ -123,11 +131,13 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     this.syncButtons = [];
     this.statusKey = "";
 
+    this.updateBanner = root.createDiv({ cls: "rs-update-banner" });
     this.renderDashboard(root);
     this.renderConnection(root);
     this.renderSchedule(root);
     this.renderContent(root);
     this.renderSafety(root);
+    this.renderAbout(root);
     this.renderAdvanced(root);
 
     root.scrollTop = scrollTop[0];
@@ -141,6 +151,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     this.storedSuccess = success ?? undefined;
     this.storedFailure = failed ?? undefined;
     this.renderStatus(true);
+    void this.refreshUpdateInfo(false);
   }
 
   hide() {
@@ -444,6 +455,187 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
         d.setValue(String(s.protectModifyPercentage ?? 50)).onChange((v) =>
           this.action(d, () => this.save({ protectModifyPercentage: Number(v) })));
       });
+  }
+
+  // ───────────────────────── version & updates ─────────────────────────
+
+  private renderAbout(root: HTMLElement) {
+    this.aboutBody = this.section(root, "info", "版本与更新");
+    this.renderAboutBody();
+  }
+
+  private brat() {
+    const plugins = (this.app as unknown as { plugins: { plugins: Record<string, { settings?: { pluginList?: string[]; updateAtStartup?: boolean } }> } }).plugins;
+    const b = plugins.plugins[BRAT_ID];
+    return { installed: !!b, tracks: !!b?.settings?.pluginList?.includes(REPO), atStartup: b?.settings?.updateAtStartup !== false };
+  }
+
+  private platformLabel() {
+    if (Platform.isIosApp) return Platform.isTablet ? "iPadOS" : "iOS";
+    if (Platform.isAndroidApp) return "Android";
+    if (Platform.isMacOS) return "macOS 桌面版";
+    if (Platform.isWin) return "Windows 桌面版";
+    if (Platform.isLinux) return "Linux 桌面版";
+    return Platform.isMobile ? "移动端" : "桌面版";
+  }
+
+  /** Reads the on-disk manifest (cheap) and, when stale or forced, GitHub plus the cloud copy. */
+  private async refreshUpdateInfo(force: boolean) {
+    const p = this.plugin;
+    try {
+      const raw = await this.app.vault.adapter.read(`${p.manifest.dir}/manifest.json`);
+      this.diskVersion = JSON.parse(raw).version;
+    } catch { this.diskVersion = undefined; }
+    const cached = cachedUpdateCheck();
+    if (!force && cached && Date.now() - cached.at < UPDATE_CHECK_TTL) { this.renderAboutBody(); return; }
+    if (this.checking) return;
+    this.checking = true;
+    this.renderAboutBody();
+    const next: { at: number; latest?: Awaited<ReturnType<typeof fetchLatestRelease>>; error?: string; cloudVersion?: string; cloudError?: string } = { at: Date.now() };
+    const s = p.settings;
+    const cloudReadable = s.serviceType === "onedrive" && !s.password && s.syncLocalPlugin !== false && !p.isSyncing;
+    await Promise.all([
+      fetchLatestRelease().then((r) => { next.latest = r; }, (e: Error) => { next.error = e.message; }),
+      cloudReadable
+        ? (async () => {
+            const client = getClient(s, this.app.vault.getName(), () => p.saveSettings());
+            const data = await client.readFile(`${this.app.vault.configDir}/plugins/${p.manifest.id}/manifest.json`);
+            next.cloudVersion = JSON.parse(new TextDecoder().decode(data)).version;
+          })().catch((e: Error) => { next.cloudError = /404|not ?found|does not exist/i.test(e.message) ? "云端还没有程序文件" : "读取失败"; })
+        : Promise.resolve(),
+    ]);
+    if (!next.latest && cached?.latest) next.latest = cached.latest;
+    storeUpdateCheck(next);
+    this.checking = false;
+    this.renderAboutBody();
+    if (force) new Notice(next.error ? `检查更新失败：${next.error}` : this.updateState().message);
+  }
+
+  private updateState() {
+    const running = this.plugin.manifest.version;
+    const latest = cachedUpdateCheck()?.latest?.version;
+    const pending = this.diskVersion && compareVersions(this.diskVersion, running) !== 0 ? this.diskVersion : undefined;
+    if (pending) return { kind: "pending" as const, message: `已下载 ${pending}，重载插件后生效。` };
+    if (latest && compareVersions(latest, running) > 0) return { kind: "available" as const, message: `有新版本 ${latest}（当前 ${running}）。` };
+    if (latest) return { kind: "latest" as const, message: `已是最新版本 ${running}。` };
+    return { kind: "unknown" as const, message: "尚未检查更新。" };
+  }
+
+  private async reloadSelf() {
+    if (this.plugin.isSyncing) throw new Error("同步进行中，请完成后再重载插件。");
+    const id = this.plugin.manifest.id;
+    const plugins = (this.app as unknown as { plugins: { disablePlugin(id: string): Promise<void>; enablePlugin(id: string): Promise<void> } }).plugins;
+    const setting = (this.app as unknown as { setting: { openTabById(id: string): void } }).setting;
+    await plugins.disablePlugin(id);
+    await plugins.enablePlugin(id);
+    window.setTimeout(() => setting.openTabById(id), 300);
+  }
+
+  private runBratUpdate() {
+    const commands = (this.app as unknown as { commands: { executeCommandById(id: string): boolean } }).commands;
+    if (!commands.executeCommandById(BRAT_UPDATE_COMMAND)) throw new Error("没有找到 BRAT 的更新命令，请确认 BRAT 已启用。");
+    new Notice("已让 BRAT 检查并安装更新，完成后插件会自动重载。");
+  }
+
+  private renderAboutBody() {
+    const body = this.aboutBody;
+    if (!body) return;
+    body.empty();
+    const p = this.plugin;
+    const check = cachedUpdateCheck();
+    const state = this.updateState();
+    const brat = this.brat();
+    const latest = check?.latest;
+
+    const grid = body.createDiv({ cls: "rs-about-grid" });
+    const row = (label: string, build: (value: HTMLElement) => void) => {
+      grid.createDiv({ cls: "rs-about-label", text: label });
+      build(grid.createDiv({ cls: "rs-about-value" }));
+    };
+    const badge = (el: HTMLElement, text: string, tone: string) => el.createSpan({ cls: `rs-badge tone-${tone}`, text });
+
+    row("正在运行", (v) => {
+      v.createSpan({ cls: "rs-version", text: p.manifest.version });
+      if (state.kind === "latest") badge(v, "已是最新", "green");
+      if (state.kind === "available") badge(v, "有新版本", "accent");
+      if (state.kind === "pending") badge(v, `${this.diskVersion} 待重载`, "yellow");
+    });
+    row("最新发布", (v) => {
+      if (this.checking) { v.createSpan({ cls: "rs-muted", text: "正在检查…" }); return; }
+      if (latest) {
+        const a = v.createEl("a", { cls: "rs-version", text: latest.version, href: latest.url });
+        a.title = "在 GitHub 上查看";
+        if (latest.publishedAt) v.createSpan({ cls: "rs-muted", text: ` · ${relativeTime(latest.publishedAt)}` });
+      } else v.createSpan({ cls: "rs-muted", text: "尚未检查" });
+      if (check?.error) v.createSpan({ cls: "rs-about-error", text: ` · ${check.error}` });
+      if (check?.at) v.title = `上次检查：${formatTime(check.at)}`;
+    });
+    row("云端程序", (v) => {
+      if (p.settings.syncLocalPlugin === false) v.createSpan({ cls: "rs-muted", text: "未开启程序同步" });
+      else if (p.settings.password) v.createSpan({ cls: "rs-muted", text: "已加密，不显示" });
+      else if (check?.cloudVersion) {
+        v.createSpan({ cls: "rs-version", text: check.cloudVersion });
+        const cmp = compareVersions(check.cloudVersion, p.manifest.version);
+        v.createSpan({ cls: "rs-muted", text: cmp === 0 ? " · 与本机一致" : cmp > 0 ? " · 比本机新，下次同步会下载" : " · 比本机旧，下次同步会上传" });
+      } else v.createSpan({ cls: "rs-muted", text: check?.cloudError ?? (this.checking ? "正在读取…" : "—") });
+    });
+    row("更新方式", (v) => {
+      const chips = v.createDiv({ cls: "rs-about-chips" });
+      if (brat.tracks) badge(chips, brat.atStartup ? "BRAT · 启动时自动更新" : "BRAT · 手动更新", "green");
+      else badge(chips, brat.installed ? "BRAT 未跟踪本插件" : "未安装 BRAT", "muted");
+      badge(chips, p.settings.syncLocalPlugin === false ? "程序同步已关闭" : "程序随 OneDrive 同步", p.settings.syncLocalPlugin === false ? "muted" : "green");
+    });
+    row("运行环境", (v) => { v.setText(`Obsidian ${apiVersion} · ${this.platformLabel()}`); });
+    row("插件 ID", (v) => { v.createSpan({ cls: "rs-version", text: p.manifest.id }); });
+
+    const actions = body.createDiv({ cls: "rs-about-actions" });
+    const button = (icon: string, text: string, cta: boolean, fn: () => Promise<void> | void) => {
+      const b = actions.createEl("button", { cls: cta ? "rs-btn mod-cta" : "rs-btn" });
+      this.iconText(b, icon, text);
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try { await fn(); } catch (error) { new Notice((error as Error).message, 10000); }
+        finally { b.disabled = false; }
+      });
+      return b;
+    };
+    if (state.kind === "pending") button("rotate-ccw", "重载插件", true, () => this.reloadSelf());
+    if (state.kind === "available") {
+      if (brat.tracks) button("download", `更新到 ${latest!.version}`, true, () => this.runBratUpdate());
+      else button("external-link", `下载 ${latest!.version}`, true, () => { window.open(latest!.url); });
+    }
+    const checkBtn = button("refresh-cw", this.checking ? "检查中…" : "检查更新", false, () => this.refreshUpdateInfo(true));
+    checkBtn.disabled = this.checking;
+    button("github", "GitHub", false, () => { window.open(REPO_URL); });
+
+    if (latest?.notes) {
+      const notes = body.createEl("details", { cls: "rs-release-notes" });
+      notes.createEl("summary", { text: `${latest.version} 更新内容` });
+      const md = notes.createDiv({ cls: "rs-release-md markdown-rendered" });
+      void MarkdownRenderer.render(this.app, latest.notes, md, "", this.plugin);
+    }
+    this.renderUpdateBanner(state, brat.tracks);
+  }
+
+  private renderUpdateBanner(state: ReturnType<RemotelySaveSettingTab["updateState"]>, viaBrat: boolean) {
+    const el = this.updateBanner;
+    if (!el) return;
+    el.empty();
+    el.toggleClass("is-shown", state.kind === "pending" || state.kind === "available");
+    if (state.kind !== "pending" && state.kind !== "available") return;
+    setIcon(el.createSpan({ cls: "rs-update-icon" }), state.kind === "pending" ? "rotate-ccw" : "sparkles");
+    el.createSpan({ cls: "rs-update-text", text: state.message });
+    const b = el.createEl("button", { cls: "rs-btn mod-cta" });
+    b.setText(state.kind === "pending" ? "重载" : viaBrat ? "更新" : "查看");
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        if (state.kind === "pending") await this.reloadSelf();
+        else if (viaBrat) this.runBratUpdate();
+        else window.open(cachedUpdateCheck()?.latest?.url ?? REPO_URL);
+      } catch (error) { new Notice((error as Error).message, 10000); }
+      finally { b.disabled = false; }
+    });
   }
 
   private renderAdvanced(root: HTMLElement) {

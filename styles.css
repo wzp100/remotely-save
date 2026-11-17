@@ -161,3 +161,34 @@
   .rs-console .rs-textarea-setting .setting-item-control { width: 100%; }
   .rs-console .rs-textarea-setting textarea { flex: 1; min-width: 0; }
 }
+
+/* Version & updates */
+.rs-console .rs-update-banner { display: none; }
+.rs-console .rs-update-banner.is-shown {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 14px;
+  border-radius: var(--rs-radius); color: var(--text-normal);
+  background: color-mix(in srgb, var(--rs-accent) 12%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--rs-accent) 35%, transparent);
+}
+.rs-console .rs-update-icon { display: inline-flex; color: var(--rs-accent); }
+.rs-console .rs-update-icon svg { width: 18px; height: 18px; }
+.rs-console .rs-update-text { flex: 1; min-width: 0; }
+.rs-console .rs-about-grid { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; padding: 10px 0 14px; align-items: center; }
+.rs-console .rs-about-label { color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-about-value { min-width: 0; overflow-wrap: anywhere; }
+.rs-console .rs-about-value .rs-badge { margin-left: 8px; font-size: var(--font-ui-smaller, 12px); }
+.rs-console .rs-about-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rs-console .rs-about-chips .rs-badge { margin-left: 0; }
+.rs-console .rs-version { font-family: var(--font-monospace); font-weight: 600; }
+.rs-console .rs-about-error { color: var(--rs-red); font-size: var(--font-ui-small); }
+.rs-console .rs-about-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 10px; }
+.rs-console .rs-release-notes { margin: 2px 0 12px; }
+.rs-console .rs-release-notes > summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-small); }
+.rs-console .rs-release-md { margin-top: 8px; padding: 10px 14px; border-radius: var(--radius-m, 8px); background: var(--background-secondary); font-size: var(--font-ui-small); }
+.rs-console .rs-release-md > :first-child { margin-top: 0; }
+.rs-console .rs-release-md > :last-child { margin-bottom: 0; }
+@container (max-width: 600px) {
+  .rs-console .rs-about-grid { grid-template-columns: 1fr; gap: 2px; }
+  .rs-console .rs-about-label { margin-top: 8px; }
+  .rs-console .rs-about-actions .rs-btn { flex: 1 1 40%; justify-content: center; }
+}

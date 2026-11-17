@@ -86,6 +86,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
   private aboutBody?: HTMLElement;
   private diskVersion?: string;
   private checking = false;
+  private wasBusy = false;
 
   constructor(app: App, readonly plugin: RemotelySavePlugin) {
     super(app, plugin);
@@ -206,6 +207,8 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     const state = this.state();
     const busy = state === "syncing" || state === "preview";
     for (const b of this.syncButtons) b.setDisabled(busy);
+    if (this.wasBusy && !busy && cachedUpdateCheck()?.cloudDeferred) void this.refreshUpdateInfo(true, false);
+    this.wasBusy = busy;
 
     // Rebuild only when something visible changed, so expanded lists and scroll positions survive.
     const minute = Math.floor(Date.now() / 30000);
@@ -480,7 +483,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
   }
 
   /** Reads the on-disk manifest (cheap) and, when stale or forced, GitHub plus the cloud copy. */
-  private async refreshUpdateInfo(force: boolean) {
+  private async refreshUpdateInfo(force: boolean, notify = force) {
     const p = this.plugin;
     try {
       const raw = await this.app.vault.adapter.read(`${p.manifest.dir}/manifest.json`);
@@ -491,9 +494,12 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     if (this.checking) return;
     this.checking = true;
     this.renderAboutBody();
-    const next: { at: number; latest?: Awaited<ReturnType<typeof fetchLatestRelease>>; error?: string; cloudVersion?: string; cloudError?: string } = { at: Date.now() };
+    const next: NonNullable<ReturnType<typeof cachedUpdateCheck>> = { at: Date.now() };
     const s = p.settings;
-    const cloudReadable = s.serviceType === "onedrive" && !s.password && s.syncLocalPlugin !== false && !p.isSyncing;
+    const cloudWanted = s.serviceType === "onedrive" && !s.password && s.syncLocalPlugin !== false;
+    // A running sync may refresh the OneDrive token; read the cloud copy once it has finished.
+    const cloudReadable = cloudWanted && !p.isSyncing;
+    if (cloudWanted && !cloudReadable) { next.cloudError = "同步进行中，结束后自动读取"; next.cloudDeferred = true; }
     await Promise.all([
       fetchLatestRelease().then((r) => { next.latest = r; }, (e: Error) => { next.error = e.message; }),
       cloudReadable
@@ -508,7 +514,7 @@ export class RemotelySaveSettingTab extends PluginSettingTab {
     storeUpdateCheck(next);
     this.checking = false;
     this.renderAboutBody();
-    if (force) new Notice(next.error ? `检查更新失败：${next.error}` : this.updateState().message);
+    if (notify) new Notice(next.error ? `检查更新失败：${next.error}` : this.updateState().message);
   }
 
   private updateState() {

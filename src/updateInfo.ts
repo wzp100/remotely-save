@@ -7,7 +7,7 @@ export const BRAT_ID = "obsidian42-brat";
 export const BRAT_UPDATE_COMMAND = "obsidian42-brat:checkForUpdatesAndUpdate";
 
 export interface ReleaseInfo { version: string; url: string; publishedAt?: number; notes: string; }
-export interface UpdateCheck { at: number; latest?: ReleaseInfo; error?: string; cloudVersion?: string; cloudError?: string; }
+export interface UpdateCheck { at: number; latest?: ReleaseInfo; error?: string; cloudVersion?: string; cloudError?: string; cloudDeferred?: boolean; }
 
 /** Numeric x.y.z comparison; non-numeric parts compare as 0. */
 export function compareVersions(a: string, b: string): number {

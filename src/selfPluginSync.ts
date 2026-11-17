@@ -33,10 +33,22 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
+/** Key order and whitespace do not matter: BRAT rewrites manifest.json as one line. */
+function canonicalJson(data: ArrayBuffer): string {
+  const sort = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(sort)
+    : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map(k => [k, sort((v as Record<string, unknown>)[k])]))
+    : v;
+  return JSON.stringify(sort(JSON.parse(new TextDecoder().decode(data))));
+}
+
 async function filesMatch(actions: Action[], local: FakeFs, remote: FakeFs): Promise<boolean> {
   for (const action of actions) {
     if (!action.local || !action.remote) return false;
     const [a, b] = await Promise.all([local.readFile(action.key), remote.readFile(action.key)]);
+    if (action.key.endsWith("/manifest.json")) {
+      try { if (canonicalJson(a) === canonicalJson(b)) continue; } catch { /* fall back to bytes */ }
+    }
     if (a.byteLength !== b.byteLength) return false;
     const left = new Uint8Array(a), right = new Uint8Array(b);
     for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false;

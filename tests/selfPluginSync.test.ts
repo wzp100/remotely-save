@@ -135,6 +135,16 @@ describe("Remotely Save program file synchronization", () => {
     assert.deepEqual(local.writes.concat(remote.writes), []);
   });
 
+  it("treats a reformatted manifest (as written by BRAT) as the same program", async () => {
+    const local = bundle("0.7.5", "Remotely Save 本地版", 1000);
+    const remote = bundle("0.7.5", "Remotely Save 本地版", 9000);
+    remote.put(root + "manifest.json", JSON.stringify({ version: "0.7.5", name: "Remotely Save 本地版", id: "remotely-save-local" }, null, 2) + "\n", 9000);
+    const plan = await prepare(local, remote);
+    assert.ok(plan.filter(a => names.some(n => a.key === root + n)).every(a => a.operation === "equal"));
+    await run(plan, local, remote);
+    assert.deepEqual(local.writes.concat(remote.writes), []);
+  });
+
   it("rejects ambiguous same-version differences and unknown newer forks", async () => {
     await assert.rejects(() => prepare(bundle("0.6.2", "Remotely Save 本地版", 1000, "a"), bundle("0.6.2", "Remotely Save 本地版", 1000, "b")), /同版本插件程序不一致/);
     await assert.rejects(() => prepare(bundle("0.6.2", "Remotely Save 本地版", 1000), bundle("0.7.0", "Another fork", 1000)), /不同的较新插件版本/);

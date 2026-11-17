@@ -1,4 +1,4 @@
-# Remotely Save 本地版 0.7.5
+# Remotely Save 本地版 0.7.6
 
 集成同步控制台的桌面和移动端 Obsidian 插件，主要使用 Microsoft OneDrive 应用目录。独立插件 ID 为 `remotely-save-local`，首次启用时可从同一设备上的旧版 `remotely-save` 读取设置和 OneDrive 授权。
 

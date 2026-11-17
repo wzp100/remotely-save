@@ -1,4 +1,4 @@
-# Remotely Save 本地版 0.7.2
+# Remotely Save 本地版 0.7.3
 
 集成同步控制台的桌面和移动端 Obsidian 插件，主要使用 Microsoft OneDrive 应用目录。独立插件 ID 为 `remotely-save-local`，首次启用时可从同一设备上的旧版 `remotely-save` 读取设置和 OneDrive 授权。
 
@@ -18,6 +18,8 @@
 - 完全排除上游 pro 目录及其账户、付费服务、智能合并模块和服务请求。原 pro 账户与停用服务字段在加载时清除；OneDrive 等基础字段不改动。
 - OneDrive 继续使用原 client ID、应用目录权限和授权回调。过期时间按秒换算毫秒，刷新响应未轮换 refresh token 时保留原值。
 - 增量列表按条目 ID 去重，以最后一次结果为准，排除删除标记。规范：[Microsoft Graph delta](https://learn.microsoft.com/en-us/graph/api/driveitem-delta)。
+- 两端同时修改时按冲突策略保留一方；被覆盖一方的内容另存为同目录下的 `原名 (冲突 本机|云端 日期 时间).扩展名`，下次同步上传到其他设备。两端内容实际相同时只记录历史，不传输也不生成副本。`.obsidian` 配置目录内的文件不生成冲突副本。
+- OneDrive 不支持空文件：未加密时空笔记会被跳过（或按设置报错），不再导致整轮同步失败；写入内容后自动上传。
 - 不递归删除文件夹，避免误删不在同步范围内的内容；已经清空的目录可能保留。
 - 启用“同步本地版程序文件”后，自身插件只同步 `main.js`、`manifest.json`、`styles.css`；自身 `data.json` 和其他私有文件始终排除，旧版 `remotely-save` 的整个目录也不参与同步。程序文件按版本成组同步，不用旧版本覆盖新版本，同版本冲突时停止覆盖；workspace.json、独立控制台和内部调试目录不参与同步。
 - 每台设备的本插件授权与设置独立保存。已经运行旧版的其他设备需先安装本地版，才能遵守这条规则；新设备需要单独完成 OneDrive 登录。

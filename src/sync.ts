@@ -14,7 +14,33 @@ export function isMissingError(error: unknown): boolean {
   return e.status===404||e.statusCode===404||e.code==="ENOENT"||/^Request failed, status 404\b/.test(e.message??"")||/\bdoes(?: not|n't) exist(?:! cannot stat for local| cannot run stat)/.test(e.message??"");
 }
 
-export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs, settings: RemotelySavePluginSettings, save: (history: BasicHistory) => Promise<void>, forget: (key: string) => Promise<void>, progress: (action: Action, done: number) => Promise<void>, configDir = ".obsidian") {
+/** Whether an empty plaintext file reaches the backend as an empty object (encrypted content never is). */
+export function remoteAcceptsEmptyFile(remote: FakeFs, rawRemote: FakeFs): boolean {
+  const enc = remote as Partial<FakeFsEncrypt>;
+  if (typeof enc.isPasswordEmpty === "function") return enc.isPasswordEmpty.call(remote) ? rawRemote.allowEmptyFile() : true;
+  return remote.allowEmptyFile();
+}
+
+function sameBytes(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  const x = new Uint8Array(a), y = new Uint8Array(b);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+/** Builds "dir/name (冲突 云端 2026-11-17 171500).ext"; avoids characters that Windows, Android and iOS reject. */
+export function conflictCopyKey(key: string, side: "local" | "remote", time: number, attempt = 0): string {
+  const slash = key.lastIndexOf("/");
+  const dir = key.slice(0, slash + 1), name = key.slice(slash + 1);
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  const d = new Date(time);
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `${dir}${stem} (冲突 ${side === "local" ? "本机" : "云端"} ${stamp}${attempt ? ` ${attempt + 1}` : ""})${ext}`;
+}
+
+export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs, settings: RemotelySavePluginSettings, save: (history: BasicHistory) => Promise<void>, forget: (key: string) => Promise<void>, progress: (action: Action, done: number) => Promise<void>, configDir = ".obsidian", allowEmpty = remote.allowEmptyFile()) {
   const localDirs = new Set(plan.filter(a => a.key.endsWith("/") && a.local).map(a => a.key));
   const remoteDirs = new Set(plan.filter(a => a.key.endsWith("/") && a.remote).map(a => a.key));
   const folderJobs=new Map<string,Promise<void>>();
@@ -46,13 +72,38 @@ export async function executePlan(plan: Action[], local: FakeFs, remote: FakeFs,
     await save({ ...r, key, size: l.size ?? l.sizeRaw, mtimeCli: l.mtimeCli, prevSyncTime: Date.now(), basicLocal: l, basicRemote: r });
   };
   // Parents before children; removals affect files only, never entire trees.
+  // Before one side of a conflict is overwritten, keep the losing content as a separate local file.
+  // The next sync uploads it, so every device receives the copy. Config files are excluded to avoid
+  // spawning stray JSON/CSS files that Obsidian or plugins would pick up.
+  const preserveConflict = async (a: Action): Promise<boolean> => {
+    const [lc, rc] = await Promise.all([local.readFile(a.key), remote.readFile(a.key)]);
+    if (sameBytes(lc, rc)) { await history(a.key); return false; }
+    if (a.key === configDir + "/" || a.key.startsWith(configDir + "/")) return true;
+    const loser: "local" | "remote" = a.operation === "upload" ? "remote" : "local";
+    const entity = loser === "local" ? a.local! : a.remote!;
+    const now = Date.now();
+    for (let attempt = 0; ; attempt++) {
+      const key = conflictCopyKey(a.key, loser, now, attempt);
+      try { await local.stat(key); }
+      catch (error) {
+        if (!isMissingError(error)) throw error;
+        await local.writeFile(key, loser === "local" ? lc : rc, modified(entity), entity.ctimeCli ?? modified(entity));
+        return true;
+      }
+      if (attempt > 20) throw new Error(`无法为冲突文件生成副本名称：${a.key}`);
+    }
+  };
   let done = 0;
   const perform=async(a:Action)=>{
+    if (a.conflict && a.local && a.remote && (a.operation === "upload" || a.operation === "download")) {
+      await current(local, a.local, a.key, false); await current(remote, a.remote, a.key, true);
+      if (!(await preserveConflict(a))) { await progress(a, ++done); return; }
+    }
     switch (a.operation) {
       case "upload": {
-        if ((a.local!.size ?? a.local!.sizeRaw) === 0 && !remote.allowEmptyFile()) {
+        if ((a.local!.size ?? a.local!.sizeRaw) === 0 && !allowEmpty) {
           if (settings.onedrive?.emptyFile === "error") throw new Error(`远端不支持空文件：${a.key}`);
-          return;
+          break;
         }
         await current(local, a.local, a.key, false); await current(remote, a.remote, a.key, true);
         const content = await local.readFile(a.key);
@@ -117,7 +168,8 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     for (const entity of rawLocal) localFiles.push(await remote.encryptEntity(entity));
     const plan = planSync(localFiles, remoteFiles, previous, settings, configDir, gitignore);
     await prepareSelfPluginPlan(plan, local, remote, settings, configDir);
-    for(const action of plan)if(action.operation==="upload"&&(action.local!.size??action.local!.sizeRaw)===0&&!remote.allowEmptyFile()){
+    const allowEmpty = remoteAcceptsEmptyFile(remote, _rawRemote);
+    for(const action of plan)if(action.operation==="upload"&&(action.local!.size??action.local!.sizeRaw)===0&&!allowEmpty){
       if(settings.onedrive?.emptyFile==="error")throw new Error(`远端不支持空文件：${action.key}`);
       action.operation="skip";
     }
@@ -128,7 +180,7 @@ export async function syncer(local: FakeFs, _rawRemote: FakeFs, remote: FakeFsEn
     const summary: SyncSummary = { dry:source === "dry", upload:count("upload"), download:count("download"), deleteLocal:count("delete_local"), deleteRemote:count("delete_remote"), folders:count("mkdir_local")+count("mkdir_remote"), skipped:count("skip"), conflicts:plan.filter(a=>a.conflict).length, actions:plan.filter(a=>!["equal","skip","forget"].includes(a.operation)).map(a=>({path:a.key,operation:a.operation})) };
     if (source !== "dry") {
       enforceProtection(plan,settings.protectModifyPercentage ?? 50);
-      await executePlan(plan,local,remote,settings,record=>upsertPrevSyncRecordByVaultAndProfile(db,vault,profile,record),key=>clearPrevSyncRecordByVaultAndProfile(db,vault,profile,key),async(a,n)=>progress(source,n,plan.length,a.key,a.operation),configDir);
+      await executePlan(plan,local,remote,settings,record=>upsertPrevSyncRecordByVaultAndProfile(db,vault,profile,record),key=>clearPrevSyncRecordByVaultAndProfile(db,vault,profile,key),async(a,n)=>progress(source,n,plan.length,a.key,a.operation),configDir,allowEmpty);
     }
     ok=true; await notify(source,8); return summary;
   } catch (error) {
